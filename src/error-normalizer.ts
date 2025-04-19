@@ -18,7 +18,6 @@ import {
     StringSymbolDictionary,
 } from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
-import * as console from "node:console";
 
 export interface NormalizeOptions {
     /** If provided, overrides the new error's stack trace. */
@@ -116,7 +115,6 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
         seen.add(input);
 
         const name = isString(obj.name) ? obj.name : 'Error';
-        console.log('Normalizing error obj', {'typeof obj.name': typeof obj.name}, obj, name);
         // Message extraction
         let message: string;
         if (isString(obj.message)) {
@@ -298,7 +296,6 @@ function attachMetaData(
 }
 
 function attachCause(error: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, cause?: unknown) {
-    console.log('Inside attachCause', {'typeof cause': typeof cause}, error, opts, depth, seen, cause);
     if (cause === undefined || (HAS_ERROR_OPTIONS && opts.useCauseError)) {
         return;
     }
@@ -328,7 +325,6 @@ function overrideToString(error: Error) {
     try {
         Object.defineProperty(error, 'toString', {
             value(): string {
-                console.log('Inside toString', this, error, 'isErrorWithCause', isErrorWithCause(this));
                 // Use stack if present
                 if (isErrorWithCause(this)) {
                     const causePart = `  cause: ${this.cause}`;
