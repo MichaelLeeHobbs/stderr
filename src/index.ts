@@ -1,1 +1,1 @@
-console.log('Happy developing ✨')
+export {standardizeError} from './standardize-error';

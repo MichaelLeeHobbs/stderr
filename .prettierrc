@@ -4,5 +4,7 @@
   "trailingComma": "es5",
   "semi": true,
   "arrowParens": "avoid",
-  "bracketSpacing": false
+  "bracketSpacing": false,
+  "objectCurlySpacing": false,
+  "tabWidth": 4
 }
