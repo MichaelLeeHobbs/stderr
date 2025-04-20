@@ -1,6 +1,5 @@
 import {NormalizeOptions, normalizeError} from '../src/normalizeError';
 import {ErrorRecord, ErrWithErrorsArr, ErrWithErrorsObj, ErrWithUnkCause, ErrWithUnkErrorsArr} from '../src/types';
-import * as console from "node:console";
 
 type Dict = Record<string | symbol, unknown>;
 
@@ -162,8 +161,7 @@ describe('standardizeError', () => {
     // Subclassing support
     describe('Subclassing', () => {
         it('honors subclassing when enabled', () => {
-            class MyError extends Error {
-            }
+            class MyError extends Error {}
 
             (globalThis as Dict).MyError = MyError;
             const input = {name: 'MyError', message: 'hey'};
@@ -195,9 +193,7 @@ describe('standardizeError', () => {
             fetchErr.code = 'ECONNREFUSED';
             const fe = normalizeError(fetchErr, {patchToString: true});
             expect(fe.name).toBe('FetchError');
-            // @ts-expect-error: code is not a standard Error property
             expect(fe.code).toBe('ECONNREFUSED');
-            console.log(fe.toString());
         });
 
         it('normalizes Mongoose ValidationError', () => {
@@ -214,7 +210,6 @@ describe('standardizeError', () => {
             const seqErr: unknown = {name: 'SequelizeValidationError', message: 'validation failed', errors: [{message: 'nope'}]};
             const se = normalizeError(seqErr);
             expect(se.name).toBe('SequelizeValidationError');
-            // @ts-expect-error: errors field added dynamically
             expect(Array.isArray(se.errors)).toBe(true);
             // @ts-expect-error: errors field added dynamically
             expect(se.errors[0].message).toBe('nope');

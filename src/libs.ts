@@ -1,12 +1,12 @@
 // src/libs.ts
-import {isSymbol} from "./types";
+import {isError, isFunction, isSymbol} from './types';
 
 export function supportsErrorOptions(): boolean {
     try {
         // @ts-expect-error cause may not be a supported property depending on the environment
         const e = new Error('', {cause: new Error('x')});
         // @ts-expect-error cause may not be a supported property depending on the environment
-        return e.cause instanceof Error;
+        return isError(e.cause);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }
@@ -15,7 +15,7 @@ export function supportsErrorOptions(): boolean {
 export function supportsAggregateError(): boolean {
     try {
         // @ts-expect-error AggregateError may not be a supported property depending on the environment
-        return typeof AggregateError === 'function';
+        return isFunction(AggregateError);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }
@@ -28,7 +28,7 @@ interface ExtractMetaDataOptions {
 
 export function extractMetaData(obj: object, opts: ExtractMetaDataOptions = {}): (string | symbol)[] {
     return Reflect.ownKeys(obj).filter(key => {
-        if (key === 'name' || key === 'message' || key === 'cause' || key === 'errors') {
+        if (['name', 'message', 'cause', 'errors'].includes(key as string)) {
             return false;
         }
         // symbol filtering

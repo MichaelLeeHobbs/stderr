@@ -1,4 +1,4 @@
-# standardize-error
+# normalize-error
 
 **Normalize any unknown thrown value into a proper Error instance with metadata.**
 
@@ -6,29 +6,33 @@
 
 ```bash
 pnpm add standardize-error
+yarn add standardize-error
+npm install standardize-error
 ```
 
 ## Usage
 
 ```typescript
-import { normalizeError } from 'standardize-error';
+import {normalizeError} from 'normalize-error';
 
 async function run() {
-  try {
-    // ...
-  } catch (e: unknown) {
-    const err = normalizeError(e);
-    console.error(err);
-  }
+    try {
+        // ...
+    } catch (e: unknown) {
+        const err = normalizeError(e);
+        console.error(err);
+    }
 }
 ```
 
 ## Development
+
 ```bash
 pnpm install
-pnpm test 
+pnpm test
 pnpm build
 ```
 
 ## License
+
 ### MIT

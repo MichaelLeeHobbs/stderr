@@ -5,7 +5,7 @@
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
 import {
-    Dictionary,
+    Dictionary, DynamicError,
     ErrorRecord,
     ErrWithUnkCause,
     ErrWithUnkErrors,
@@ -68,14 +68,14 @@ const defaultOptions: Required<NormalizeOptionsInternal> = {
 const HAS_ERROR_OPTIONS = supportsErrorOptions();
 const HAS_AGGREGATE_ERROR = supportsAggregateError();
 
-export function normalizeError<T = Error>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T {
+export function normalizeError<T = DynamicError>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T {
     const opts = {...defaultOptions, ...options};
     return _normalize(input, opts, 0, new WeakSet()) as T;
 }
 
-function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     if (depth >= opts.maxDepth) {
-        const e = new Error('Max depth reached');
+        const e = new Error('Max depth reached') as DynamicError;
         if (opts.patchToString) {
             overrideToString(e);
         }
@@ -90,7 +90,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
 
     // 2. Primitive string
     if (isString(input)) {
-        const e = new Error(input);
+        const e = new Error(input) as DynamicError;
         // Override stack if requested
         if (opts.originalStack) {
             e.stack = opts.originalStack;
@@ -103,7 +103,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
 
     // 3. Other primitives
     if (isPrimitive(input)) {
-        const e = new Error(String(input));
+        const e = new Error(String(input)) as DynamicError;
         // Override stack if requested
         if (opts.originalStack) {
             e.stack = opts.originalStack;
@@ -115,7 +115,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     if (isObject(input)) {
         const obj = input as ErrorRecord;
         if (seen.has(input)) {
-            return new Error('<Circular>');
+            return new Error('<Circular>') as DynamicError;
         }
         seen.add(input);
 
@@ -140,7 +140,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
         const metadataKeys = extractMetaData(obj, opts);
 
         // Determine if we should create AggregateError
-        let error: Error;
+        let error: DynamicError;
         if (name === 'AggregateError' || Array.isArray(rawErrors)) {
             error = normalizeAggregateError(rawErrors, message, opts, depth, seen);
         } else if (opts.enableSubclassing && isFunction((globalThis as Dictionary)[name])) {
@@ -174,10 +174,10 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     }
 
     // Fallback
-    return new Error(String(input));
+    return new Error(String(input)) as DynamicError;
 }
 
-function normalizeExistingError(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+function normalizeExistingError(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     // Coerce message
     if (!isString(err.message)) {
         err.message = String(err.message || '');
@@ -198,7 +198,7 @@ function normalizeExistingError(err: Error, opts: Required<NormalizeOptionsInter
     return err;
 }
 
-function normalizeErrorWithCause(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+function normalizeErrorWithCause(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     if (isErrWithUnkCause(err)) {
         if (isObject(err.cause) && seen.has(err.cause as object)) {
             err.cause = new Error('<Circular>');
@@ -210,7 +210,7 @@ function normalizeErrorWithCause(err: Error, opts: Required<NormalizeOptionsInte
     return err;
 }
 
-function normalizeErrorWithErrors(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     if (isErrWithErrorsArr(err)) {
         err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen)));
     } else if (isErrWithErrorsObj(err)) {
@@ -224,8 +224,14 @@ function normalizeErrorWithErrors(err: Error, opts: Required<NormalizeOptionsInt
     return err;
 }
 
-function normalizeAggregateError(rawErrors: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
-    let error: Error;
+function normalizeAggregateError(
+    rawErrors: unknown,
+    message: string,
+    opts: Required<NormalizeOptionsInternal>,
+    depth: number,
+    seen: WeakSet<object>
+): DynamicError {
+    let error: DynamicError;
     // Normalize errors array1
     const errsArray = isArray(rawErrors) ? rawErrors.map(e => _normalize(e, opts, depth + 1, seen)) : [];
     if (HAS_AGGREGATE_ERROR && opts.useAggregateError) {
@@ -233,8 +239,7 @@ function normalizeAggregateError(rawErrors: unknown, message: string, opts: Requ
         error = new AggregateError(errsArray, message);
     } else {
         // Fallback to Error if AggregateError is not supported
-        error = new Error(message);
-        // @ts-expect-error errors may not be a supported property depending on the environment
+        error = new Error(message) as DynamicError;
         error.errors = errsArray;
     }
     return error;
@@ -247,10 +252,10 @@ function normalizeSubclassError(
     opts: Required<NormalizeOptionsInternal>,
     depth: number,
     seen: WeakSet<object>
-): Error {
+): DynamicError {
     try {
         // Attempt to use the global constructor if available
-        const Ctor = (globalThis as Dictionary)[name] as new (msg: string) => Error;
+        const Ctor = (globalThis as Dictionary)[name] as new (msg: string) => DynamicError;
         const error = new Ctor(message);
         error.name = name;
         return error;
@@ -260,21 +265,21 @@ function normalizeSubclassError(
     }
 }
 
-function normalizeCauseError(rawCause: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
-    let error: Error;
+function normalizeCauseError(rawCause: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
+    let error: DynamicError;
     // Use native cause support when available
     if (!isUndefined(rawCause) && HAS_ERROR_OPTIONS) {
         const causeErr = isError(rawCause) ? normalizeExistingError(rawCause, opts, depth + 1, seen) : _normalize(rawCause, opts, depth + 1, seen);
         // @ts-expect-error cause may not be a supported property depending on the environment
-        error = new Error(message, {cause: causeErr});
+        error = new Error(message, {cause: causeErr}) as DynamicError;
     } else {
-        error = new Error(message);
+        error = new Error(message) as DynamicError;
     }
     return error;
 }
 
 function attachMetaData(
-    error: Error,
+    error: DynamicError,
     source: ErrorRecord,
     metadataKeys: (string | symbol)[],
     opts: Required<NormalizeOptionsInternal>,
@@ -292,7 +297,6 @@ function attachMetaData(
             if (isError(value)) {
                 value = normalizeExistingError(value, opts, depth + 1, seen);
             }
-            // @ts-expect-error metadata properties are not known
             error[key] = value;
         } /* node:coverage ignore next 2 */ catch {
             /* ignore */
@@ -300,7 +304,7 @@ function attachMetaData(
     }
 }
 
-function attachCause(error: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, cause?: unknown) {
+function attachCause(error: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, cause?: unknown) {
     if (isUndefined(cause) || (HAS_ERROR_OPTIONS && opts.useCauseError)) {
         return;
     }
@@ -312,7 +316,7 @@ function attachCause(error: Error, opts: Required<NormalizeOptionsInternal>, dep
     }
 }
 
-function attachErrorsToObject(error: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, rawErrors: unknown) {
+function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, rawErrors: unknown) {
     if (isNonNullObject(rawErrors) && !isArray(rawErrors)) {
         const normalized: ErrorRecord = {};
         for (const [k, v] of Object.entries(rawErrors as ErrorRecord)) {
@@ -326,7 +330,7 @@ function attachErrorsToObject(error: Error, opts: Required<NormalizeOptionsInter
     }
 }
 
-function overrideToString(error: Error) {
+function overrideToString(error: DynamicError) {
     try {
         Object.defineProperty(error, 'toString', {
             value(): string {
