@@ -37,15 +37,13 @@ describe('errorToJson', () => {
         const err = new Error('fail') as DynamicError;
         err.cause = {cause};
         const json = errorToJson(err);
-        // this is not great, I think we could do better
-        expect(json.cause).toStrictEqual({});
+        expect(json.cause).toBe('[object Object]');
 
         const cause2 = [new Error('root'), Symbol('root'), []];
         const err2 = new Error('fail') as DynamicError;
         err2.cause = {cause: cause2};
         const json2 = errorToJson(err2);
-        // this is not great, but difficult to deal with
-        expect(json2.cause).toStrictEqual({cause: [{}, null, []]});
+        expect(json2.cause).toStrictEqual('[object Object]');
     });
 
     it('handles nested Error cause that cannot be serialized', () => {
@@ -161,13 +159,10 @@ describe('errorToJson', () => {
         expect(json.string).toBe('string');
         expect(json.number).toBe(123);
         expect(json.boolean).toBe(true);
-        expect(json.data).toStrictEqual({key: 'value'});
+        expect(json.data).toBe('[object Object]');
         expect((json.err as DynamicError).message).toBe('to err is human');
-        // @ts-expect-error index signature
-        expect(json.errs[0].message).toBe('error1');
-        // @ts-expect-error index signature
-        expect(json.errs[1]).toBe('error2');
-        expect(json['Symbol(keySymbol)']).toBe('Symbol(keySymbolValue)');
+        expect(json.errs).toBe('Error: error1,error2,Error: fail');
+        expect(json['Symbol(keySymbol)']).toBe(err[keySymbol]);
         // @ts-expect-error index signature
         expect(json.circular.message).toBe('[Circular]');
         expect(json.unserializable).toBe('[object Object]');

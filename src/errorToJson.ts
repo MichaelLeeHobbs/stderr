@@ -1,11 +1,7 @@
 // src/errorToJson.ts
 
-import {DynamicError, hasProp, isArray, isError, isObject, isPrimitive, isString, isSymbol} from './types';
-import * as console from "node:console";
+import {Dictionary, DynamicError, hasProp, isArray, isError, isObject, isPrimitive, isString, isSymbol} from './types';
 
-/**
- * A JSON‑serializable shape for normalized errors.
- */
 export interface ErrorJson {
     name: string;
     message: string;
@@ -17,112 +13,78 @@ export interface ErrorJson {
 }
 
 export interface ErrorToJsonOptions {
-    /** Maximum recursion depth (inclusive) */
+    /** How deep to recurse (default: 8) */
     maxDepth?: number;
 }
 
-/**
- * Recursively converts an Error (or normalized Error) into a plain object
- * suitable for JSON.stringify, including metadata, cause, nested errors,
- * circular detection, and a depth limit.
- *
- * @param err - An Error instance (e.g. from normalizeError).
- * @param options - Optional settings (maxDepth=8).
- * @returns A plain object with name, message, stack, cause, errors, plus any own props.
- */
+const DEFAULT_MAX_DEPTH = 8;
+
 export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {}): ErrorJson {
-    const {maxDepth = 8} = options;
+    const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
     const seen = new WeakSet<object>();
 
-    function _toJson(e: DynamicError, depth: number): ErrorJson {
-        // Depth check
+    function serialize(e: DynamicError, depth: number): ErrorJson {
+        // 1) depth guard
         if (depth >= maxDepth) {
             return {name: e.name || 'Error', message: '[Max depth reached]'};
         }
-        // Circular check
-        if (isObject(e) && seen.has(e)) {
-            return {name: e.name || 'Error', message: '[Circular]'};
-        }
+        // 2) circular guard
         if (isObject(e)) {
+            if (seen.has(e)) {
+                return {name: e.name || 'Error', message: '[Circular]'};
+            }
             seen.add(e);
         }
 
-        const json: ErrorJson = {
+        // 3) base shape
+        const out: ErrorJson = {
             name: e.name || 'Error',
-            message: e.message || '',
+            message: e.message ?? '',
         };
         if (isString(e.stack)) {
-            json.stack = e.stack;
+            out.stack = e.stack;
         }
 
-        // Handle nested cause
+        // 4) cause
         if (hasProp(e, 'cause')) {
-            const c = (e as DynamicError).cause;
-            if (isError(c)) {
-                json.cause = _toJson(c as DynamicError, depth + 1);
-            } else if (isPrimitive(c)) {
-                json.cause = String(c);
-            } else if (isObject(c)) {
-                // We should look at handling Objects here
-                try {
-                    // This will throw on circular references
-                    json.cause = JSON.parse(JSON.stringify(c));
-                } catch {
-                    // We could probably handle circular references here, but it's not worth the effort
-                    json.cause = String(c);
-                }
-            }
+            const c = e.cause;
+            out.cause = isError(c) ? serialize(c, depth + 1) : String(c);
         }
 
-        // Handle nested errors
+        // 5) errors array or map
         if (hasProp(e, 'errors')) {
-            const raw = (e as DynamicError).errors;
+            const raw = e.errors;
             if (isArray(raw)) {
-                json.errors = raw.map(item => (isError(item) ? _toJson(item as DynamicError, depth + 1) : {name: 'Error', message: String(item)}));
+                out.errors = raw.map(item => (isError(item) ? serialize(item, depth + 1) : {name: 'Error', message: String(item)}));
             } else if (isObject(raw)) {
-                const out: Record<string, ErrorJson> = {};
-                for (const k of Object.keys(raw)) {
-                    const v = (raw as Record<string, unknown>)[k];
-                    out[k] = isError(v) ? _toJson(v as DynamicError, depth + 1) : {name: 'Error', message: String(v)};
+                const map: Record<string, ErrorJson> = {};
+                for (const key of Object.keys(raw as object)) {
+                    const v = (raw as Dictionary)[key];
+                    map[key] = isError(v) ? serialize(v, depth + 1) : {name: 'Error', message: String(v)};
                 }
-                json.errors = out;
+                out.errors = map;
             }
         }
 
-        // Copy metadata
+        // 6) any other own‑props: only primitives, symbols or errors, else string‑ify
         for (const key of Reflect.ownKeys(e)) {
-            const keyStr = key.toString();
-            if (['name', 'message', 'stack', 'cause', 'errors'].includes(keyStr)) {
+            const k = key.toString();
+            if (['name', 'message', 'stack', 'cause', 'errors'].includes(k)) {
                 continue;
             }
-            const val = e[key];
-
-            if (isSymbol(val)) {
-                json[keyStr] = val.toString();
-            } else if (isPrimitive(val)) {
-                json[keyStr] = val;
+            const val = (e as Dictionary)[key];
+            if (isPrimitive(val) || isSymbol(val)) {
+                out[k] = val;
             } else if (isError(val)) {
-                json[keyStr] = _toJson(val as DynamicError, depth + 1);
-            } else if (isArray(val)) {
-                json[keyStr] = val.map(item => (isError(item) ? _toJson(item as DynamicError, depth + 1) : String(item)));
-            } else if (isObject(val)) {
-                console.log('errorToJson -> object', keyStr, val);
-                if (seen.has(val)) {
-                    json[keyStr] = '[Circular]';
-                } else {
-                    seen.add(val);
-                    try {
-                        json[keyStr] = JSON.parse(JSON.stringify(val));
-                    } catch {
-                        json[keyStr] = String(val);
-                    }
-                }
+                out[k] = serialize(val, depth + 1);
+            } else {
+                // dump everything else to String() rather than deep‑clone
+                out[k] = String(val);
             }
-            // If Function drop it
         }
 
-        return json;
+        return out;
     }
 
-    return _toJson(err, 0);
+    return serialize(err, 0);
 }
