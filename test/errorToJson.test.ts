@@ -140,25 +140,36 @@ describe('errorToJson', () => {
 
     it('handles Error with metadata properties', () => {
         const err = new Error('fail') as DynamicError;
-        const symbol = Symbol('symbol');
+        const keySymbol = Symbol('keySymbol');
         err.string = 'string';
         err.number = 123;
         err.boolean = true;
-        err.symbol = symbol;
         err.data = {key: 'value'};
+        err[keySymbol] = Symbol('keySymbolValue');
+        err.err = new Error('to err is human') as DynamicError;
+        err.errs = [new Error('error1'), 'error2', err]; // last creates a circular reference
         err.circular = err;
         err.unserializable = {};
         // @ts-expect-error unknown type
         err.unserializable.circular = err.unserializable;
+        err.anObject = {key: 'value'};
+        err.anObjectWithSeen = {seen: err.anObject};
+        err.fakeCircular = err.anObject;
         const json = errorToJson(err);
         expect(json.name).toBe('Error');
         expect(json.message).toBe('fail');
         expect(json.string).toBe('string');
         expect(json.number).toBe(123);
         expect(json.boolean).toBe(true);
-        expect(json.symbol).toBe(symbol); // TODO: maybe this should be a string?
         expect(json.data).toStrictEqual({key: 'value'});
-        expect(json.circular).toBe('[Circular]');
+        expect((json.err as DynamicError).message).toBe('to err is human');
+        // @ts-expect-error index signature
+        expect(json.errs[0].message).toBe('error1');
+        // @ts-expect-error index signature
+        expect(json.errs[1]).toBe('error2');
+        expect(json['Symbol(keySymbol)']).toBe('Symbol(keySymbolValue)');
+        // @ts-expect-error index signature
+        expect(json.circular.message).toBe('[Circular]');
         expect(json.unserializable).toBe('[object Object]');
     });
 });

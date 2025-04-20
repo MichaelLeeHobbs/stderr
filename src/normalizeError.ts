@@ -78,7 +78,7 @@ export const normalizeError: NormalizeErrorFn = <T = DynamicError>(input: unknow
 };
 
 // Default options for normalizeError
-normalizeError.maxDepth = 16;
+normalizeError.maxDepth = 8;
 normalizeError.includeNonEnumerable = false;
 normalizeError.includeSymbols = false;
 normalizeError.enableSubclassing = false;
@@ -163,9 +163,12 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
         // Copy metadata keys
         const metadataKeys = extractMetaData(obj, opts);
 
+        // Only use AggregateError when there's a real array of errors
+        const hasErrorsArray = isArray(rawErrors) && rawErrors.length > 0;
+
         // Determine if we should create AggregateError
         let error: DynamicError;
-        if (name === 'AggregateError' || Array.isArray(rawErrors)) {
+        if (hasErrorsArray) {
             error = normalizeAggregateError(rawErrors, message, opts, depth, seen);
         } else if (opts.enableSubclassing && isFunction((globalThis as Dictionary)[name])) {
             error = normalizeSubclassError(name, message, rawCause, opts, depth, seen);
@@ -251,7 +254,7 @@ function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOpt
 }
 
 function normalizeAggregateError(
-    rawErrors: unknown,
+    rawErrors: unknown[],
     message: string,
     opts: Required<NormalizeOptionsInternal>,
     depth: number,
@@ -259,7 +262,7 @@ function normalizeAggregateError(
 ): DynamicError {
     let error: DynamicError;
     // Normalize errors array1
-    const errsArray = isArray(rawErrors) ? rawErrors.map(e => _normalize(e, opts, depth + 1, seen)) : [];
+    const errsArray = rawErrors.map(e => _normalize(e, opts, depth + 1, seen));
     if (HAS_AGGREGATE_ERROR && opts.useAggregateError) {
         // @ts-expect-error AggregateError may not be a supported depending on the environment
         error = new AggregateError(errsArray, message);
@@ -279,16 +282,22 @@ function normalizeSubclassError(
     depth: number,
     seen: WeakSet<object>
 ): DynamicError {
-    try {
-        // Attempt to use the global constructor if available
-        const Ctor = (globalThis as Dictionary)[name] as new (msg: string) => DynamicError;
-        const error = new Ctor(message);
-        error.name = name;
-        return error;
-    } catch {
-        // Fallback to standard Error
-        return normalizeCauseError(rawCause, message, opts, depth, seen);
+    const maybeCtor = (globalThis as Dictionary)[name];
+
+    // 1) make sure it’s actually a function…
+    // 2) …whose prototype is an Error (or a subclass thereof)
+    if (isFunction(maybeCtor) && maybeCtor.prototype instanceof Error) {
+        try {
+            // @ts-expect-error unknown constructor has any type
+            const error = new maybeCtor(message) as DynamicError;
+            error.name = name;
+            return error;
+        } catch {
+            // fall through to fallback logic below
+        }
     }
+    // fallback if it’s not a safe Error subclass
+    return normalizeCauseError(rawCause, message, opts, depth, seen);
 }
 
 function normalizeCauseError(rawCause: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {

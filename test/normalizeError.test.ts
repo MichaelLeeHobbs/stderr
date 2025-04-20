@@ -88,9 +88,8 @@ describe('standardizeError', () => {
             const input = {name: 'AggregateError', message: 'multi', errors: null};
             // A DynamicErrorWithErrorsArray is effectively an AggregateError
             const err = normalizeError<DynamicErrorWithErrorsArray>(input);
-            // @ts-expect-error: AggregateError may not be available in this environment
-            expect(err).toBeInstanceOf(AggregateError);
-            expect(err.errors).toHaveLength(0);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.errors).toBeUndefined();
         });
 
         it('falls back to plain Error when useAggregateError is disabled', () => {
@@ -182,6 +181,17 @@ describe('standardizeError', () => {
             const err = normalizeError(input, {enableSubclassing: true});
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
+        });
+        it('should handle when subclassing throws with invalid Class', () => {
+            class MyClass {
+                // Not a subclass of Error
+            }
+
+            (globalThis as Dictionary).MyError = MyClass;
+            const input = new MyClass();
+            const err = normalizeError(input, {enableSubclassing: true});
+            expect(err).toBeInstanceOf(Error);
+            expect(err.name).toBe('Error');
         });
     });
 

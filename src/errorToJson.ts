@@ -1,6 +1,7 @@
 // src/errorToJson.ts
 
-import {DynamicError, hasProp, isArray, isError, isObject, isPrimitive, isString} from './types';
+import {DynamicError, hasProp, isArray, isError, isObject, isPrimitive, isString, isSymbol} from './types';
+import * as console from "node:console";
 
 /**
  * A JSON‑serializable shape for normalized errors.
@@ -90,24 +91,34 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
 
         // Copy metadata
         for (const key of Reflect.ownKeys(e)) {
-            if (['name', 'message', 'stack', 'cause', 'errors'].includes(key as string)) {
+            const keyStr = key.toString();
+            if (['name', 'message', 'stack', 'cause', 'errors'].includes(keyStr)) {
                 continue;
             }
             const val = e[key];
-            if (isPrimitive(val)) {
-                json[key as string] = val;
+
+            if (isSymbol(val)) {
+                json[keyStr] = val.toString();
+            } else if (isPrimitive(val)) {
+                json[keyStr] = val;
+            } else if (isError(val)) {
+                json[keyStr] = _toJson(val as DynamicError, depth + 1);
+            } else if (isArray(val)) {
+                json[keyStr] = val.map(item => (isError(item) ? _toJson(item as DynamicError, depth + 1) : String(item)));
             } else if (isObject(val)) {
+                console.log('errorToJson -> object', keyStr, val);
                 if (seen.has(val)) {
-                    json[key as string] = '[Circular]';
+                    json[keyStr] = '[Circular]';
                 } else {
                     seen.add(val);
                     try {
-                        json[key as string] = JSON.parse(JSON.stringify(val));
+                        json[keyStr] = JSON.parse(JSON.stringify(val));
                     } catch {
-                        json[key as string] = String(val);
+                        json[keyStr] = String(val);
                     }
                 }
             }
+            // If Function drop it
         }
 
         return json;
