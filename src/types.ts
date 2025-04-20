@@ -1,3 +1,4 @@
+// src/types.ts
 export type Dictionary = Record<string | symbol, unknown>;
 export type ErrorRecord = Dictionary;
 

@@ -1,3 +1,4 @@
+// src/libs.ts
 import {isSymbol} from "./types";
 
 export function supportsErrorOptions(): boolean {

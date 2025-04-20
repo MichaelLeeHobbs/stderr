@@ -1,3 +1,4 @@
+// src/normalizeError.ts
 // normalizeError.ts
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
