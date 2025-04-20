@@ -1,1 +1,1 @@
-export {standardizeError} from './standardize-error';
+export {normalizeError} from './normalizeError';

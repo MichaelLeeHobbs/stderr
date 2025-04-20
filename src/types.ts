@@ -1,5 +1,5 @@
-export type DictionaryStringSymbol = Record<string | symbol, unknown>;
-export type ErrorRecord = DictionaryStringSymbol;
+export type Dictionary = Record<string | symbol, unknown>;
+export type ErrorRecord = Dictionary;
 
 // Represents an object shape that carries a non-Error `cause`. We
 // detect these to convert the cause into a proper Error instance.
@@ -38,7 +38,7 @@ export const isString = (input: unknown): input is string => typeof input === 's
 export const isSymbol = (input: unknown): input is symbol => typeof input === 'symbol';
 export const isArray = (input: unknown): input is unknown[] => Array.isArray(input);
 export const isError = (input: unknown): input is Error => input instanceof Error;
-// export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
+export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
 export const isObject = (input: unknown): input is object => typeof input === 'object';
 export const isNonNullObject = (input: unknown): input is object => isObject(input) && input !== null;
 export const isNull = (input: unknown): input is null => input === null;
@@ -47,7 +47,7 @@ export const isPrimitive = (input: unknown): input is string | number | boolean 
     return isNull(input) || isUndefined(input) || ['string', 'number', 'boolean', 'bigint', 'symbol'].includes(typeof input);
 };
 export const isErrorsObject = (input: unknown): input is ErrorsObject => isNonNullObject(input) && 'errors' in input;
-export const isCauseObject = (input: unknown): input is CauseObject => isNonNullObject(input) && 'cause' in input;
+// export const isCauseObject = (input: unknown): input is CauseObject => isNonNullObject(input) && 'cause' in input;
 
 export function isErrWithUnkCause(input: unknown): input is ErrWithUnkCause {
     return isNonNullObject(input) && 'cause' in input && (input as unknown as ErrWithUnkCause).cause !== undefined;

@@ -11,13 +11,13 @@ pnpm add standardize-error
 ## Usage
 
 ```typescript
-import { standardizeError } from 'standardize-error';
+import { normalizeError } from 'standardize-error';
 
 async function run() {
   try {
     // ...
   } catch (e: unknown) {
-    const err = standardizeError(e);
+    const err = normalizeError(e);
     console.error(err);
   }
 }
