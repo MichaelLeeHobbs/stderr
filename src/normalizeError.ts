@@ -4,23 +4,7 @@
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
-import {
-    Dictionary, DynamicError,
-    ErrorRecord,
-    ErrWithUnkCause,
-    ErrWithUnkErrors,
-    isArray,
-    isError,
-    isErrWithErrorsArr,
-    isErrWithErrorsObj,
-    isErrWithUnkCause,
-    isFunction,
-    isNonNullObject,
-    isObject,
-    isPrimitive,
-    isString,
-    isUndefined,
-} from './types';
+import {Dictionary, DynamicError, ErrorRecord, hasProp, isArray, isError, isFunction, isNonNullObject, isPrimitive, isString, isUndefined} from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
 import * as util from 'node:util';
 
@@ -112,7 +96,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     }
 
     // 4. Object-like
-    if (isObject(input)) {
+    if (isNonNullObject(input)) {
         const obj = input as ErrorRecord;
         if (seen.has(input)) {
             return new Error('<Circular>') as DynamicError;
@@ -199,11 +183,11 @@ function normalizeExistingError(err: DynamicError, opts: Required<NormalizeOptio
 }
 
 function normalizeErrorWithCause(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
-    if (isErrWithUnkCause(err)) {
-        if (isObject(err.cause) && seen.has(err.cause as object)) {
+    if (hasProp(err, 'cause')) {
+        if (isNonNullObject(err.cause) && seen.has(err.cause)) {
             err.cause = new Error('<Circular>');
         } else {
-            const c = (err as ErrWithUnkCause).cause;
+            const c = err.cause;
             err.cause = isError(c) ? normalizeExistingError(c, opts, depth + 1, seen) : _normalize(c, opts, depth + 1, seen);
         }
     }
@@ -211,15 +195,19 @@ function normalizeErrorWithCause(err: DynamicError, opts: Required<NormalizeOpti
 }
 
 function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
-    if (isErrWithErrorsArr(err)) {
-        err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen)));
-    } else if (isErrWithErrorsObj(err)) {
-        const raw = err.errors as ErrorRecord;
-        const normalized: ErrorRecord = {};
-        for (const [k, v] of Object.entries(raw)) {
-            normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
+    if (hasProp(err, 'errors')) {
+        if (isArray(err.errors)) {
+            err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen)));
+        } else if (isNonNullObject(err.errors)) {
+            const raw = err.errors as ErrorRecord;
+            const normalized: ErrorRecord = {};
+            for (const [k, v] of Object.entries(raw)) {
+                normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
+            }
+            err.errors = normalized;
         }
-        err.errors = normalized;
+        // TODO: what if errors is a non-array iterable?
+        // TODO: what if errors is a non-object?
     }
     return err;
 }
@@ -291,7 +279,7 @@ function attachMetaData(
         try {
             // noinspection UnnecessaryLocalVariableJS
             let value = source[key as keyof typeof source];
-            if (isObject(value) && seen.has(value)) {
+            if (isNonNullObject(value) && seen.has(value)) {
                 value = '<Circular>';
             }
             if (isError(value)) {
@@ -310,7 +298,7 @@ function attachCause(error: DynamicError, opts: Required<NormalizeOptionsInterna
     }
     const causeErr = isError(cause) ? normalizeExistingError(cause, opts, depth + 1, seen) : _normalize(cause, opts, depth + 1, seen);
     try {
-        (error as ErrWithUnkCause).cause = causeErr;
+        error.cause = causeErr;
     } /* node:coverage ignore next 2 */ catch {
         /* ignore as maybe read-only */
     }
@@ -323,7 +311,7 @@ function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptio
             normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
         }
         try {
-            (error as ErrWithUnkErrors).errors = normalized;
+            error.errors = normalized;
         } /* node:coverage ignore next 2 */ catch {
             /* ignore as maybe read-only */
         }

@@ -1,19 +1,6 @@
 // src/errorToJson.ts
 
-import {DynamicError, isArray, isError, isErrorsObject, isErrWithCauseError, isString} from "./types";
-
-/**
- * A JSON‑serializable shape for normalized errors.
- */
-export interface ErrorJson {
-    name: string;
-    message: string;
-    stack?: string;
-    cause?: ErrorJson;
-    errors?: ErrorJson[] | Record<string, ErrorJson>;
-
-    [key: string]: unknown;
-}
+import {DynamicError, hasProp, isArray, isError, isNonNullObject, isPrimitive, isString} from './types';
 
 /**
  * Recursively converts an Error (or normalized Error) into a plain object
@@ -33,22 +20,26 @@ export function errorToJson(err: DynamicError): DynamicError {
     }
 
     // Handle nested cause if present
-    if (isErrWithCauseError(err)) {
-        json.cause = errorToJson(err.cause);
+    if (hasProp(err, 'cause')) {
+        if (isError(err.cause)) {
+            json.cause = errorToJson(err.cause);
+        } else if (isPrimitive(err.cause)) {
+            json.cause = String(err.cause);
+        } // TODO: handle non-primitive cause
     }
 
     // Handle nested errors if present
-    if (isErrorsObject(err)) {
+    if (isError(err)) {
         const raw = err.errors;
         if (isArray(raw)) {
             json.errors = raw.map((e: unknown) => (isError(e) ? errorToJson(e) : {message: String(e)}));
-        } else if (raw && typeof raw === 'object') {
+        } else if (isNonNullObject(raw)) {
             const obj: Record<string, DynamicError> = {};
             for (const [k, v] of Object.entries(raw)) {
                 obj[k] = isError(v) ? errorToJson(v) : {message: String(v)};
             }
             json.errors = obj;
-        }
+        } // TODO: handle non-array, non-object errors
     }
 
     // Copy any other own enumerable properties (metadata)
