@@ -1,5 +1,4 @@
-import {ErrorWithCauseOld, ErrorWithDictionary, isCauseObject, isError, isObjectNonNull, isString, isPrimitive} from "./types";
-
+import {ErrDictionary, isCauseObject, isError, isNonNullObject, isString, isPrimitive, ErrWithUnkCauseAndErrors, ErrorRecord} from './types';
 
 /**
  * Main normalizer function: converts *any* thrown value into a standard
@@ -40,7 +39,7 @@ export function standardizeError(input: unknown): Error {
         message = String(input);
 
         // 4. Handle object-like values: extract name, message, metadata
-    } else if (isObjectNonNull(input)) {
+    } else if (isNonNullObject(input)) {
         const obj = input as Record<string, unknown>;
 
         // Use custom name if provided, otherwise default to 'Error'
@@ -82,15 +81,15 @@ export function standardizeError(input: unknown): Error {
     // Attach any extracted metadata onto the error object
     for (const [key, value] of Object.entries(metadata)) {
         try {
-            (error as ErrorWithDictionary)[key] = value;
+            (error as ErrDictionary)[key] = value;
         } catch {
             // Non-writable or reserved fields are ignored silently
         }
     }
 
     // 7. Normalize nested `.cause` and `.errors` structures
-    normalizeCause(error as ErrorWithCauseOld);
-    normalizeErrorsArrayOrObject(error as ErrorWithCauseOld);
+    normalizeCause(error as ErrWithUnkCauseAndErrors);
+    normalizeErrorsArrayOrObject(error as ErrWithUnkCauseAndErrors);
 
     // 8. Override toString so that `error.toString()` === `console.log(error)`:
     // Also override toString & inspect on newly created errors
@@ -118,8 +117,8 @@ function normalizeExistingError(err: Error): Error {
     err.name = err.name || 'Error';
 
     // Recursively normalize nested data
-    normalizeCause(err as ErrorWithCauseOld);
-    normalizeErrorsArrayOrObject(err as ErrorWithCauseOld);
+    normalizeCause(err as ErrWithUnkCauseAndErrors);
+    normalizeErrorsArrayOrObject(err as ErrWithUnkCauseAndErrors);
 
     // Also override toString & inspect on newly created errors
     overrideToString(err);
@@ -133,7 +132,7 @@ function normalizeExistingError(err: Error): Error {
  *
  * After this call, err.cause (if defined) is guaranteed to be Error.
  */
-function normalizeCause(err: ErrorWithCauseOld): void {
+function normalizeCause(err: ErrWithUnkCauseAndErrors): void {
     if (isCauseObject(err)) {
         err.cause = standardizeError(err.cause);
     }
@@ -145,12 +144,12 @@ function normalizeCause(err: ErrorWithCauseOld): void {
  * - Arrays (e.g. AggregateError) become arrays of Error.
  * - Objects (e.g. Mongoose ValidationError.errors) become maps of Error.
  */
-function normalizeErrorsArrayOrObject(err: ErrorWithCauseOld): void {
+function normalizeErrorsArrayOrObject(err: ErrWithUnkCauseAndErrors): void {
     const raw = err.errors;
 
     if (Array.isArray(raw)) {
         err.errors = raw.map((e: unknown) => (isError(e) ? normalizeExistingError(e) : standardizeError(e)));
-    } else if (isObjectNonNull(raw)) {
+    } else if (isNonNullObject(raw)) {
         const normalized: Record<string, Error> = {};
         for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
             normalized[key] = isError(val) ? normalizeExistingError(val) : standardizeError(val);

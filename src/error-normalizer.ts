@@ -4,18 +4,17 @@
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
 import {
-    Dict,
-    ErrorWithCause,
-    ErrorWithCauseOld,
-    ErrorWithDictionary,
+    DictionaryStringSymbol,
+    ErrorRecord,
+    ErrWithUnkCause,
+    ErrWithUnkErrors,
     isError,
-    isErrorWithCause,
-    isErrorWithErrorsArray,
-    isErrorWithErrorsObject,
+    isErrWithUnkCause,
+    isErrWithErrorsArr,
+    isErrWithErrorsObj,
     isObject,
     isPrimitive,
     isString,
-    StringSymbolDictionary,
 } from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
 
@@ -80,7 +79,7 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
     // 1. Already Error
     if (input instanceof Error) {
         seen.add(input);
-        return normalizeExisting(input, opts, depth, seen);
+        return normalizeExistingError(input, opts, depth, seen);
     }
 
     // 2. Primitive string
@@ -108,7 +107,7 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
 
     // 4. Object-like
     if (isObject(input)) {
-        const obj = input as Dict;
+        const obj = input as ErrorRecord;
         if (seen.has(input)) {
             return new Error('<Circular>');
         }
@@ -128,8 +127,8 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
         }
 
         // Extract raw cause & errors
-        const rawCause = (obj as ErrorWithDictionary).cause;
-        const rawErrors = (obj as ErrorWithDictionary).errors;
+        const rawCause = obj.cause;
+        const rawErrors = obj.errors;
 
         // Copy metadata keys
         const metadataKeys = extractMetaData(obj, opts);
@@ -138,7 +137,7 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
         let error: Error;
         if (name === 'AggregateError' || Array.isArray(rawErrors)) {
             error = normalizeAggregateError(rawErrors, message, opts, depth, seen);
-        } else if (opts.enableSubclassing && typeof (globalThis as StringSymbolDictionary)[name] === 'function') {
+        } else if (opts.enableSubclassing && typeof (globalThis as DictionaryStringSymbol)[name] === 'function') {
             error = normalizeSubclassError(name, message, rawCause, opts, depth, seen);
         } else {
             error = normalizeCauseError(rawCause, message, opts, depth, seen);
@@ -172,10 +171,11 @@ function _standardize(input: unknown, opts: Required<NormalizeOptionsInternal>, 
     return new Error(String(input));
 }
 
-function normalizeExisting(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+function normalizeExistingError(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
+    console.debug('Normalizing existing error', err.message, {err, opts});
     // Coerce message
     if (!isString(err.message)) {
-        err.message = String(err.message ?? '');
+        err.message = String(err.message || '');
     }
     err.name = err.name || 'Error';
     // Preserve original stack
@@ -194,25 +194,25 @@ function normalizeExisting(err: Error, opts: Required<NormalizeOptionsInternal>,
 }
 
 function normalizeErrorWithCause(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
-    if (isErrorWithCause(err)) {
-        if (isObject((err as ErrorWithCause).cause) && seen.has(err.cause as object)) {
-            (err as ErrorWithCause).cause = '<Circular>';
+    if (isErrWithUnkCause(err)) {
+        if (isObject((err as ErrWithUnkCause).cause) && seen.has(err.cause as object)) {
+            (err as ErrWithUnkCause).cause = new Error('<Circular>');
         } else {
-            const c = (err as ErrorWithCause).cause;
-            (err as ErrorWithCause).cause = isError(c) ? normalizeExisting(c, opts, depth + 1, seen) : _standardize(c, opts, depth + 1, seen);
+            const c = (err as ErrWithUnkCause).cause;
+            (err as ErrWithUnkCause).cause = isError(c) ? normalizeExistingError(c, opts, depth + 1, seen) : _standardize(c, opts, depth + 1, seen);
         }
     }
     return err;
 }
 
 function normalizeErrorWithErrors(err: Error, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): Error {
-    if (isErrorWithErrorsArray(err)) {
-        err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExisting(e, opts, depth + 1, seen) : _standardize(e, opts, depth + 1, seen)));
-    } else if (isErrorWithErrorsObject(err)) {
+    if (isErrWithErrorsArr(err)) {
+        err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _standardize(e, opts, depth + 1, seen)));
+    } else if (isErrWithErrorsObj(err)) {
         const raw = err.errors as Record<string, unknown>;
         const normalized: Record<string, Error> = {};
         for (const [k, v] of Object.entries(raw)) {
-            normalized[k] = isError(v) ? normalizeExisting(v, opts, depth + 1, seen) : _standardize(v, opts, depth + 1, seen);
+            normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _standardize(v, opts, depth + 1, seen);
         }
         err.errors = normalized;
     }
@@ -245,7 +245,7 @@ function normalizeSubclassError(
 ): Error {
     try {
         // Attempt to use the global constructor if available
-        const Ctor = (globalThis as StringSymbolDictionary)[name] as new (msg: string) => Error;
+        const Ctor = (globalThis as DictionaryStringSymbol)[name] as new (msg: string) => Error;
         const error = new Ctor(message);
         error.name = name;
         return error;
@@ -259,7 +259,7 @@ function normalizeCauseError(rawCause: unknown, message: string, opts: Required<
     let error: Error;
     // Use native cause support when available
     if (rawCause !== undefined && HAS_ERROR_OPTIONS) {
-        const causeErr = isError(rawCause) ? normalizeExisting(rawCause, opts, depth + 1, seen) : _standardize(rawCause, opts, depth + 1, seen);
+        const causeErr = isError(rawCause) ? normalizeExistingError(rawCause, opts, depth + 1, seen) : _standardize(rawCause, opts, depth + 1, seen);
         // @ts-expect-error cause may not be a supported property depending on the environment
         error = new Error(message, {cause: causeErr});
     } else {
@@ -270,7 +270,7 @@ function normalizeCauseError(rawCause: unknown, message: string, opts: Required<
 
 function attachMetaData(
     error: Error,
-    source: Dict,
+    source: ErrorRecord,
     metadataKeys: (string | symbol)[],
     opts: Required<NormalizeOptionsInternal>,
     depth: number,
@@ -285,7 +285,7 @@ function attachMetaData(
                 value = '<Circular>';
             }
             if (isError(value)) {
-                value = normalizeExisting(value, opts, depth + 1, seen);
+                value = normalizeExistingError(value, opts, depth + 1, seen);
             }
             // @ts-expect-error metadata properties are not known
             error[key] = value;
@@ -299,9 +299,9 @@ function attachCause(error: Error, opts: Required<NormalizeOptionsInternal>, dep
     if (cause === undefined || (HAS_ERROR_OPTIONS && opts.useCauseError)) {
         return;
     }
-    const causeErr = isError(cause) ? normalizeExisting(cause, opts, depth + 1, seen) : _standardize(cause, opts, depth + 1, seen);
+    const causeErr = isError(cause) ? normalizeExistingError(cause, opts, depth + 1, seen) : _standardize(cause, opts, depth + 1, seen);
     try {
-        (error as ErrorWithCauseOld).cause = causeErr;
+        (error as ErrWithUnkCause).cause = causeErr;
     } /* node:coverage ignore next 2 */ catch {
         /* ignore as maybe read-only */
     }
@@ -311,10 +311,10 @@ function attachErrorsToObject(error: Error, opts: Required<NormalizeOptionsInter
     if (rawErrors && typeof rawErrors === 'object' && !Array.isArray(rawErrors)) {
         const normalized: Record<string, Error> = {};
         for (const [k, v] of Object.entries(rawErrors as Record<string, unknown>)) {
-            normalized[k] = isError(v) ? normalizeExisting(v, opts, depth + 1, seen) : _standardize(v, opts, depth + 1, seen);
+            normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _standardize(v, opts, depth + 1, seen);
         }
         try {
-            (error as ErrorWithCauseOld).errors = normalized;
+            (error as ErrWithUnkErrors).errors = normalized;
         } /* node:coverage ignore next 2 */ catch {
             /* ignore as maybe read-only */
         }
@@ -326,7 +326,7 @@ function overrideToString(error: Error) {
         Object.defineProperty(error, 'toString', {
             value(): string {
                 // Use stack if present
-                if (isErrorWithCause(this)) {
+                if (isErrWithUnkCause(this)) {
                     const causePart = `  cause: ${this.cause}`;
                     return this.stack ? `${this.stack}\n${causePart}` : `${this.name}: ${this.message}\n${causePart}`;
                 }

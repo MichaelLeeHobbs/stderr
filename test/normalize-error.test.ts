@@ -1,5 +1,5 @@
 import {NormalizeOptions, standardizeError} from '../src/error-normalizer';
-import {ErrorWithCause, ErrorWithDictionary, ErrorWithErrorsArray, ErrorWithErrorsObject, ErrorWithUnknownErrorsArray,} from '../src/types';
+import {ErrorRecord, ErrWithErrorsArr, ErrWithErrorsObj, ErrWithUnkCause, ErrWithUnkErrorsArr} from '../src/types';
 import * as console from 'node:console';
 
 type Dict = Record<string | symbol, unknown>;
@@ -12,6 +12,14 @@ describe('standardizeError', () => {
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
             expect(err.name).toBe('Error');
+        });
+
+        it('converts a string into an Error with custom stack', () => {
+            const err = standardizeError('oops', {originalStack: 'CUSTOM_STACK'});
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.name).toBe('Error');
+            expect(err.stack).toBe('CUSTOM_STACK');
         });
 
         it('converts number, boolean, null, undefined to Error with correct message and original stack', () => {
@@ -38,13 +46,40 @@ describe('standardizeError', () => {
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe(testFn.toString());
         });
+
+        it('should handle unexpected types gracefully', () => {
+            const cases: [unknown, string][] = [
+                [[], '[]'],
+                [{}, '{}'],
+                [new Date(0), '"1970-01-01T00:00:00.000Z"'],
+                [new Map(), '{}'],
+                [new Set(), '{}'],
+                [new WeakMap(), '{}'],
+                [new WeakSet(), '{}'],
+                [new Promise(() => null), '{}'],
+                [new Int8Array(), '{}'],
+                [new Uint8Array(), '{}'],
+                [new Float32Array(), '{}'],
+                [new Float64Array(), '{}'],
+                [new ArrayBuffer(8), '{}'],
+                // @ts-expect-error: Blob and File are not standard types
+                [new Blob(), '{}'],
+                [new File([], 'file.txt'), '{}'],
+                [Symbol('foo'), 'Symbol(foo)'],
+            ];
+            for (const [input, expected] of cases) {
+                const err = standardizeError(input);
+                expect(err).toBeInstanceOf(Error);
+                expect(err.message).toBe(expected);
+            }
+        });
     });
 
     // AggregateError behavior
     describe('AggregateError handling', () => {
         it('preserves AggregateError with normalized errors', () => {
             const input = {name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')]};
-            const err = standardizeError<ErrorWithUnknownErrorsArray>(input);
+            const err = standardizeError<ErrWithUnkErrorsArr>(input);
             // @ts-expect-error: AggregateError may not be available in this environment
             expect(err).toBeInstanceOf(AggregateError);
             expect(err.errors[0]).toBeInstanceOf(Error);
@@ -53,7 +88,7 @@ describe('standardizeError', () => {
 
         it('handles AggregateError with missing errors', () => {
             const input = {name: 'AggregateError', message: 'multi', errors: null};
-            const err = standardizeError<ErrorWithUnknownErrorsArray>(input);
+            const err = standardizeError<ErrWithUnkErrorsArr>(input);
             // @ts-expect-error: AggregateError may not be available in this environment
             expect(err).toBeInstanceOf(AggregateError);
             expect(err.errors).toHaveLength(0);
@@ -61,7 +96,7 @@ describe('standardizeError', () => {
 
         it('falls back to plain Error when useAggregateError is disabled', () => {
             const input = {name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')]};
-            const err = standardizeError<ErrorWithErrorsArray>(input, {useAggregateError: false});
+            const err = standardizeError<ErrWithErrorsArr>(input, {useAggregateError: false});
             expect(err).toBeInstanceOf(Error);
             expect(err.errors[0]).toBeInstanceOf(Error);
             expect((err.errors[0] as Error).message).toBe('a');
@@ -72,10 +107,10 @@ describe('standardizeError', () => {
     describe('Property copying and normalization', () => {
         it('copies non-enumerable and symbol keys when requested', () => {
             const sym = Symbol('foo');
-            const obj: Dict = {message: 'm'};
+            const obj: ErrorRecord = {message: 'm'};
             Object.defineProperty(obj, 'hidden', {value: 42, enumerable: false});
             obj[sym] = 'bar';
-            const err = standardizeError<ErrorWithDictionary>(obj, {includeNonEnumerable: true, includeSymbols: true});
+            const err = standardizeError<ErrorRecord>(obj, {includeNonEnumerable: true, includeSymbols: true});
             expect(err.hidden).toBe(42);
             expect(err[sym]).toBe('bar');
         });
@@ -107,17 +142,19 @@ describe('standardizeError', () => {
     describe('Recursion and maxDepth', () => {
         it('stops recursion at maxDepth', () => {
             const nested = {cause: {cause: {message: 'deep'}}};
-            const err = standardizeError<ErrorWithCause>(nested, {maxDepth: 1});
+            const err = standardizeError<ErrWithUnkCause>(nested, {maxDepth: 1, patchToString: true});
             const firstCause = err.cause as Error;
             expect(firstCause).toBeInstanceOf(Error);
-            expect((firstCause as ErrorWithCause).cause).toBeUndefined();
+            expect((firstCause as ErrWithUnkCause).cause).toBeUndefined();
+            // TODO: I think we can do a better output here
+            expect(err.toString()).toContain('Error: {"cause":{"cause":{"message":"deep"}}}');
         });
 
         it('normalizes deeply nested cause chains by default', () => {
             const nested = {cause: {cause: 'inner'}};
-            const err = standardizeError<ErrorWithCause>(nested);
+            const err = standardizeError<ErrWithUnkCause>(nested);
             const c1 = err.cause as Error;
-            const c2 = (c1 as ErrorWithCause).cause as Error;
+            const c2 = (c1 as ErrWithUnkCause).cause as Error;
             expect(c2.message).toBe('inner');
         });
     });
@@ -221,8 +258,8 @@ describe('standardizeError', () => {
             // @ts-expect-error: assigning errors property to Error instance
             input.errors = {a: 'x', b: new Error('y')};
             const err = standardizeError(input);
-            expect((err as ErrorWithErrorsObject).errors.a).toBeInstanceOf(Error);
-            expect(((err as ErrorWithErrorsObject).errors.b as Error).message).toBe('y');
+            expect((err as ErrWithErrorsObj).errors.a).toBeInstanceOf(Error);
+            expect(((err as ErrWithErrorsObj).errors.b as Error).message).toBe('y');
         });
 
         it('normalizes errors array on Error instance', () => {
@@ -230,8 +267,8 @@ describe('standardizeError', () => {
             // @ts-expect-error: assigning errors property to Error instance
             input.errors = ['a', new Error('b')];
             const err = standardizeError(input);
-            expect((err as ErrorWithErrorsArray).errors[0]).toBeInstanceOf(Error);
-            expect(((err as ErrorWithErrorsArray).errors[1] as Error).message).toBe('b');
+            expect((err as ErrWithErrorsArr).errors[0]).toBeInstanceOf(Error);
+            expect(((err as ErrWithErrorsArr).errors[1] as Error).message).toBe('b');
         });
 
         it('normalizes Error cause on Error instance', () => {
@@ -239,7 +276,7 @@ describe('standardizeError', () => {
             const err: Error = new Error('outer');
             // @ts-expect-error: assigning cause to Error instance
             err.cause = cause;
-            const normalized = standardizeError<ErrorWithCause>(err);
+            const normalized = standardizeError<ErrWithUnkCause>(err);
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
         });
@@ -269,21 +306,28 @@ describe('standardizeError', () => {
             expect(result).toBe(original);
             expect(result.name).toBe('Error');
         });
+
+        it('normalizes Error with custom stack', () => {
+            const original: Error = new Error('initial');
+            const result = standardizeError(original, {originalStack: 'CUSTOM_STACK'});
+            expect(result).toBe(original);
+            expect(result.stack).toBe('CUSTOM_STACK');
+        });
     });
 
     describe('Object-like Error', () => {
         it('normalizes errors array on object input', () => {
-            const input = {message: 'agg', errors: ['a', 'b']};
+            const input = {message: 'agg', errors: ['a', new Error('b')]};
             const err = standardizeError(input);
-            expect((err as ErrorWithErrorsArray).errors[0]).toBeInstanceOf(Error);
-            expect(((err as ErrorWithErrorsArray).errors[1] as Error).message).toBe('b');
+            expect((err as ErrWithErrorsArr).errors[0]).toBeInstanceOf(Error);
+            expect(((err as ErrWithErrorsArr).errors[1] as Error).message).toBe('b');
         });
 
         it('normalizes errors object map on object input', () => {
-            const input = {message: 'agg', errors: {a: 'x', b: 'y'}};
+            const input = {message: 'agg', errors: {a: 'x', b: new Error('y')}};
             const err = standardizeError(input);
-            expect((err as ErrorWithErrorsObject).errors.a).toBeInstanceOf(Error);
-            expect(((err as ErrorWithErrorsObject).errors.b as Error).message).toBe('y');
+            expect((err as ErrWithErrorsObj).errors.a).toBeInstanceOf(Error);
+            expect(((err as ErrWithErrorsObj).errors.b as Error).message).toBe('y');
         });
 
         it('normalizes Error cause on object input with useCauseError disabled', () => {
@@ -291,7 +335,7 @@ describe('standardizeError', () => {
             const input: unknown = {message: 'outer'};
             // @ts-expect-error: assigning cause property to object
             input.cause = cause;
-            const normalized = standardizeError<ErrorWithCause>(input, {useCauseError: false});
+            const normalized = standardizeError<ErrWithUnkCause>(input, {useCauseError: false});
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
         });
@@ -300,7 +344,7 @@ describe('standardizeError', () => {
             const input: unknown = {message: 'outer'};
             // @ts-expect-error: assigning cause property to object
             input.cause = 'inner';
-            const normalized = standardizeError<ErrorWithCause>(input, {useCauseError: false});
+            const normalized = standardizeError<ErrWithUnkCause>(input, {useCauseError: false});
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
         });
@@ -308,20 +352,38 @@ describe('standardizeError', () => {
         it('normalizes Error cause on object input', () => {
             const cause = new Error('inner');
             const input = {message: 'outer', cause};
-            const normalized = standardizeError<ErrorWithCause>(input);
+            const normalized = standardizeError<ErrWithUnkCause>(input);
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
+        });
+
+        it('converts a Object into an Error with custom stack', () => {
+            const obj = {message: 'oops'};
+            const err = standardizeError(obj, {originalStack: 'CUSTOM_STACK'});
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.name).toBe('Error');
+            expect(err.stack).toBe('CUSTOM_STACK');
         });
     });
 
     // Circular detection
     describe('Circular detection', () => {
-        it('detects circular cause', () => {
+        it('detects circular cause in Error', () => {
             const e: Error = new Error('outer');
             // @ts-expect-error: cause is added dynamically
             e.cause = e;
-            const err = standardizeError<ErrorWithCause>(e);
-            expect(err.cause).toBe('<Circular>');
+            const err = standardizeError<ErrWithUnkCause>(e);
+            console.error(err.cause);
+            expect((err.cause as Error).message).toBe('<Circular>');
+        });
+
+        it('detects circular cause in object', () => {
+            const obj: unknown = {message: 'outer'};
+            // @ts-expect-error: cause is added dynamically
+            obj.cause = obj;
+            const err = standardizeError<Dict>(obj);
+            expect((err.cause as Error).message).toBe('<Circular>');
         });
 
         it('detects circular metadata', () => {
