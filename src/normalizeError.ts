@@ -225,8 +225,6 @@ function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOpt
             }
             err.errors = normalized;
         }
-        // TODO: what if errors is a non-array iterable?
-        // TODO: what if errors is a non-object?
     }
     return err;
 }

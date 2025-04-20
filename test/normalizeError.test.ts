@@ -310,6 +310,23 @@ describe('standardizeError', () => {
             expect(result).toBe(original);
             expect(result.stack).toBe('CUSTOM_STACK');
         });
+
+        it('normalizes non-array iterable errors (e.g. Set) into an object map', () => {
+            const input = new Error('with set errors') as DynamicError;
+            input.errors = new Set(['a', new Error('b')]);
+            const normalized = normalizeError<DynamicError>(input);
+            // Since Set has no own enumerable string-keyed entries, we end up with {}
+            expect(typeof normalized.errors).toBe('object');
+            expect(normalized.errors).toEqual({});
+        });
+
+        it('leaves non-object, non-iterable errors untouched', () => {
+            const input = new Error('with primitive errors') as DynamicError;
+            input.errors = 42;
+            const normalized = normalizeError<DynamicError>(input);
+            // Non-array, non-object should pass through unchanged
+            expect(normalized.errors).toBe(42);
+        });
     });
 
     describe('Object-like Error', () => {
