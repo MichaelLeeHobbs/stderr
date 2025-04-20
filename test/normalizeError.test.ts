@@ -384,6 +384,16 @@ describe('standardizeError', () => {
         });
     });
 
+    describe('Unusual shaped Errors', () => {
+        it('normalizes ["a", "b"] into an Error with message  ["a","b"]', () => {
+            const input = ['a', 'b'];
+            const err = normalizeError(input);
+            expect(err).toBeInstanceOf(Error);
+            // Future improvement: we should probably do something more useful here but we can't handle every possible case
+            expect(err.message).toBe('["a","b"]');
+        });
+    });
+
     // Circular detection
     describe('Circular detection', () => {
         it('detects circular cause in Error', () => {

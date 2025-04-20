@@ -1,6 +1,6 @@
 // src/errorToJson.ts
 
-import {DynamicError, hasProp, isArray, isError, isNonNullObject, isPrimitive, isString} from './types';
+import {DynamicError, hasProp, isArray, isError, isObject, isPrimitive, isString} from './types';
 
 /**
  * A JSON‑serializable shape for normalized errors.
@@ -39,10 +39,10 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
             return {name: e.name || 'Error', message: '[Max depth reached]'};
         }
         // Circular check
-        if (isNonNullObject(e) && seen.has(e)) {
+        if (isObject(e) && seen.has(e)) {
             return {name: e.name || 'Error', message: '[Circular]'};
         }
-        if (isNonNullObject(e)) {
+        if (isObject(e)) {
             seen.add(e);
         }
 
@@ -61,7 +61,7 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
                 json.cause = _toJson(c as DynamicError, depth + 1);
             } else if (isPrimitive(c)) {
                 json.cause = String(c);
-            } else if (isNonNullObject(c)) {
+            } else if (isObject(c)) {
                 // We should look at handling Objects here
                 try {
                     // This will throw on circular references
@@ -78,7 +78,7 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
             const raw = (e as DynamicError).errors;
             if (isArray(raw)) {
                 json.errors = raw.map(item => (isError(item) ? _toJson(item as DynamicError, depth + 1) : {name: 'Error', message: String(item)}));
-            } else if (isNonNullObject(raw)) {
+            } else if (isObject(raw)) {
                 const out: Record<string, ErrorJson> = {};
                 for (const k of Object.keys(raw)) {
                     const v = (raw as Record<string, unknown>)[k];
@@ -96,7 +96,7 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
             const val = e[key];
             if (isPrimitive(val)) {
                 json[key as string] = val;
-            } else if (isNonNullObject(val)) {
+            } else if (isObject(val)) {
                 if (seen.has(val)) {
                     json[key as string] = '[Circular]';
                 } else {

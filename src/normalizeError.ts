@@ -3,9 +3,30 @@
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
-import {Dictionary, DynamicError, ErrorRecord, hasProp, isArray, isError, isFunction, isNonNullObject, isPrimitive, isString, isUndefined} from './types';
+import {
+    Dictionary,
+    DynamicError,
+    ErrorRecord,
+    hasProp,
+    InspectOptions,
+    isArray,
+    isError,
+    isFunction,
+    isObject,
+    isPrimitive,
+    isString,
+    isUndefined,
+} from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
-import * as util from 'node:util';
+
+let nodeInspect: ((obj: unknown, options?: InspectOptions) => string) | undefined;
+try {
+    // only works in Node
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    nodeInspect = require('util').inspect;
+} /* node:coverage ignore next 2 */ catch {
+    nodeInspect = undefined;
+}
 
 const HAS_ERROR_OPTIONS = supportsErrorOptions();
 const HAS_AGGREGATE_ERROR = supportsAggregateError();
@@ -42,13 +63,13 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
 
 interface NormalizeErrorFn {
     <T = DynamicError>(input: unknown, options?: NormalizeOptions): T;
-    MAX_DEPTH: number;
-    INCLUDE_NON_ENUMERABLE: boolean;
-    INCLUDE_SYMBOLS: boolean;
-    ENABLE_SUBCLASSING: boolean;
-    USE_AGGREGATE_ERROR: boolean;
-    USE_CAUSE_ERROR: boolean;
-    PATCH_TO_STRING: boolean;
+    maxDepth: number;
+    includeNonEnumerable: boolean;
+    includeSymbols: boolean;
+    enableSubclassing: boolean;
+    useAggregateError: boolean;
+    useCauseError: boolean;
+    patchToString: boolean;
 }
 
 export const normalizeError: NormalizeErrorFn = <T = DynamicError>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T => {
@@ -57,23 +78,23 @@ export const normalizeError: NormalizeErrorFn = <T = DynamicError>(input: unknow
 };
 
 // Default options for normalizeError
-normalizeError.MAX_DEPTH = 16;
-normalizeError.INCLUDE_NON_ENUMERABLE = false;
-normalizeError.INCLUDE_SYMBOLS = false;
-normalizeError.ENABLE_SUBCLASSING = false;
-normalizeError.USE_AGGREGATE_ERROR = true;
-normalizeError.USE_CAUSE_ERROR = true;
-normalizeError.PATCH_TO_STRING = false;
+normalizeError.maxDepth = 16;
+normalizeError.includeNonEnumerable = false;
+normalizeError.includeSymbols = false;
+normalizeError.enableSubclassing = false;
+normalizeError.useAggregateError = true;
+normalizeError.useCauseError = true;
+normalizeError.patchToString = false;
 
 const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     originalStack: undefined,
-    maxDepth: normalizeError.MAX_DEPTH,
-    includeNonEnumerable: normalizeError.INCLUDE_NON_ENUMERABLE,
-    includeSymbols: normalizeError.INCLUDE_SYMBOLS,
-    enableSubclassing: normalizeError.ENABLE_SUBCLASSING,
-    useAggregateError: normalizeError.USE_AGGREGATE_ERROR,
-    useCauseError: normalizeError.USE_CAUSE_ERROR,
-    patchToString: normalizeError.PATCH_TO_STRING,
+    maxDepth: normalizeError.maxDepth,
+    includeNonEnumerable: normalizeError.includeNonEnumerable,
+    includeSymbols: normalizeError.includeSymbols,
+    enableSubclassing: normalizeError.enableSubclassing,
+    useAggregateError: normalizeError.useAggregateError,
+    useCauseError: normalizeError.useCauseError,
+    patchToString: normalizeError.patchToString,
 });
 
 function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
@@ -115,7 +136,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     }
 
     // 4. Object-like
-    if (isNonNullObject(input)) {
+    if (isObject(input)) {
         const obj = input as ErrorRecord;
         if (seen.has(input)) {
             return new Error('<Circular>') as DynamicError;
@@ -203,7 +224,7 @@ function normalizeExistingError(err: DynamicError, opts: Required<NormalizeOptio
 
 function normalizeErrorWithCause(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     if (hasProp(err, 'cause')) {
-        if (isNonNullObject(err.cause) && seen.has(err.cause)) {
+        if (isObject(err.cause) && seen.has(err.cause)) {
             err.cause = new Error('<Circular>');
         } else {
             const c = err.cause;
@@ -217,7 +238,7 @@ function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOpt
     if (hasProp(err, 'errors')) {
         if (isArray(err.errors)) {
             err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen)));
-        } else if (isNonNullObject(err.errors)) {
+        } else if (isObject(err.errors)) {
             const raw = err.errors as ErrorRecord;
             const normalized: ErrorRecord = {};
             for (const [k, v] of Object.entries(raw)) {
@@ -296,7 +317,7 @@ function attachMetaData(
         try {
             // noinspection UnnecessaryLocalVariableJS
             let value = source[key as keyof typeof source];
-            if (isNonNullObject(value) && seen.has(value)) {
+            if (isObject(value) && seen.has(value)) {
                 value = '<Circular>';
             }
             if (isError(value)) {
@@ -322,7 +343,7 @@ function attachCause(error: DynamicError, opts: Required<NormalizeOptionsInterna
 }
 
 function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, rawErrors: unknown) {
-    if (isNonNullObject(rawErrors) && !isArray(rawErrors)) {
+    if (isObject(rawErrors) && !isArray(rawErrors)) {
         const normalized: ErrorRecord = {};
         for (const [k, v] of Object.entries(rawErrors as ErrorRecord)) {
             normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
@@ -336,15 +357,19 @@ function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptio
 }
 
 function overrideToString(error: DynamicError) {
-    try {
-        Object.defineProperty(error, 'toString', {
-            value(): string {
-                return util.inspect(this);
-            },
-            writable: true,
-            configurable: true,
-        });
-    } /* node:coverage ignore next 2 */ catch {
-        /* ignore as maybe read-only */
+    if (typeof nodeInspect === 'function') {
+        try {
+            Object.defineProperty(error, 'toString', {
+                value(): string {
+                    // in Node: use inspect for full object+metadata
+                    return nodeInspect!(this, {depth: normalizeError.maxDepth, compact: false});
+                },
+                writable: true,
+                configurable: true,
+            });
+        } /* node:coverage ignore next 2 */ catch {
+            // ignore in case it’s read‑only
+        }
     }
+    // otherwise do nothing — browser will use Error.prototype.toString
 }
