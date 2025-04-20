@@ -39,7 +39,7 @@ export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {})
         // 3) base shape
         const out: ErrorJson = {
             name: e.name || 'Error',
-            message: e.message ?? '',
+            message: e.message || '',
         };
         if (isString(e.stack)) {
             out.stack = e.stack;
