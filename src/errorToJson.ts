@@ -3,52 +3,115 @@
 import {DynamicError, hasProp, isArray, isError, isNonNullObject, isPrimitive, isString} from './types';
 
 /**
+ * A JSON‑serializable shape for normalized errors.
+ */
+export interface ErrorJson {
+    name: string;
+    message: string;
+    stack?: string;
+    cause?: ErrorJson | string;
+    errors?: ErrorJson[] | Record<string, ErrorJson>;
+
+    [key: string]: unknown;
+}
+
+export interface ErrorToJsonOptions {
+    /** Maximum recursion depth (inclusive) */
+    maxDepth?: number;
+}
+
+/**
  * Recursively converts an Error (or normalized Error) into a plain object
- * suitable for JSON.stringify, including metadata, cause, and nested errors.
+ * suitable for JSON.stringify, including metadata, cause, nested errors,
+ * circular detection, and a depth limit.
  *
  * @param err - An Error instance (e.g. from normalizeError).
+ * @param options - Optional settings (maxDepth=8).
  * @returns A plain object with name, message, stack, cause, errors, plus any own props.
  */
-export function errorToJson(err: DynamicError): DynamicError {
-    const json: DynamicError = {
-        name: err.name,
-        message: err.message,
-    };
+export function errorToJson(err: DynamicError, options: ErrorToJsonOptions = {}): ErrorJson {
+    const {maxDepth = 8} = options;
+    const seen = new WeakSet<object>();
 
-    if (isString(err.stack)) {
-        json.stack = err.stack;
-    }
-
-    // Handle nested cause if present
-    if (hasProp(err, 'cause')) {
-        if (isError(err.cause)) {
-            json.cause = errorToJson(err.cause);
-        } else if (isPrimitive(err.cause)) {
-            json.cause = String(err.cause);
-        } // TODO: handle non-primitive cause
-    }
-
-    // Handle nested errors if present
-    if (isError(err)) {
-        const raw = err.errors;
-        if (isArray(raw)) {
-            json.errors = raw.map((e: unknown) => (isError(e) ? errorToJson(e) : {message: String(e)}));
-        } else if (isNonNullObject(raw)) {
-            const obj: Record<string, DynamicError> = {};
-            for (const [k, v] of Object.entries(raw)) {
-                obj[k] = isError(v) ? errorToJson(v) : {message: String(v)};
-            }
-            json.errors = obj;
-        } // TODO: handle non-array, non-object errors
-    }
-
-    // Copy any other own enumerable properties (metadata)
-    for (const key of Object.keys(err)) {
-        if (key === 'name' || key === 'message' || key === 'stack' || key === 'cause' || key === 'errors') {
-            continue;
+    function _toJson(e: DynamicError, depth: number): ErrorJson {
+        // Depth check
+        if (depth >= maxDepth) {
+            return {name: e.name || 'Error', message: '[Max depth reached]'};
         }
-        json[key] = err[key];
+        // Circular check
+        if (isNonNullObject(e) && seen.has(e)) {
+            return {name: e.name || 'Error', message: '[Circular]'};
+        }
+        if (isNonNullObject(e)) {
+            seen.add(e);
+        }
+
+        const json: ErrorJson = {
+            name: e.name || 'Error',
+            message: e.message || '',
+        };
+        if (isString(e.stack)) {
+            json.stack = e.stack;
+        }
+
+        // Handle nested cause
+        if (hasProp(e, 'cause')) {
+            const c = (e as DynamicError).cause;
+            if (isError(c)) {
+                json.cause = _toJson(c as DynamicError, depth + 1);
+            } else if (isPrimitive(c)) {
+                json.cause = String(c);
+            } else if (isNonNullObject(c)) {
+                // We should look at handling Objects here
+                try {
+                    // This will throw on circular references
+                    json.cause = JSON.parse(JSON.stringify(c));
+                } catch {
+                    // We could probably handle circular references here, but it's not worth the effort
+                    json.cause = String(c);
+                }
+            }
+        }
+
+        // Handle nested errors
+        if (hasProp(e, 'errors')) {
+            const raw = (e as DynamicError).errors;
+            if (isArray(raw)) {
+                json.errors = raw.map(item => (isError(item) ? _toJson(item as DynamicError, depth + 1) : {name: 'Error', message: String(item)}));
+            } else if (isNonNullObject(raw)) {
+                const out: Record<string, ErrorJson> = {};
+                for (const k of Object.keys(raw)) {
+                    const v = (raw as Record<string, unknown>)[k];
+                    out[k] = isError(v) ? _toJson(v as DynamicError, depth + 1) : {name: 'Error', message: String(v)};
+                }
+                json.errors = out;
+            }
+        }
+
+        // Copy metadata
+        for (const key of Reflect.ownKeys(e)) {
+            if (['name', 'message', 'stack', 'cause', 'errors'].includes(key as string)) {
+                continue;
+            }
+            const val = e[key];
+            if (isPrimitive(val)) {
+                json[key as string] = val;
+            } else if (isNonNullObject(val)) {
+                if (seen.has(val)) {
+                    json[key as string] = '[Circular]';
+                } else {
+                    seen.add(val);
+                    try {
+                        json[key as string] = JSON.parse(JSON.stringify(val));
+                    } catch {
+                        json[key as string] = String(val);
+                    }
+                }
+            }
+        }
+
+        return json;
     }
 
-    return json;
+    return _toJson(err, 0);
 }
