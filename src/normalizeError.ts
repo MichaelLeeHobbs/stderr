@@ -1,5 +1,4 @@
 // src/normalizeError.ts
-// normalizeError.ts
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
@@ -7,6 +6,9 @@
 import {Dictionary, DynamicError, ErrorRecord, hasProp, isArray, isError, isFunction, isNonNullObject, isPrimitive, isString, isUndefined} from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
 import * as util from 'node:util';
+
+const HAS_ERROR_OPTIONS = supportsErrorOptions();
+const HAS_AGGREGATE_ERROR = supportsAggregateError();
 
 export interface NormalizeOptions {
     /** If provided, overrides the new error's stack trace. */
@@ -38,24 +40,41 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
     patchToString?: boolean;
 }
 
-const defaultOptions: Required<NormalizeOptionsInternal> = {
-    originalStack: undefined,
-    maxDepth: Infinity,
-    includeNonEnumerable: false,
-    includeSymbols: false,
-    enableSubclassing: false,
-    useAggregateError: true,
-    useCauseError: true,
-    patchToString: false,
+interface NormalizeErrorFn {
+    <T = DynamicError>(input: unknown, options?: NormalizeOptions): T;
+    MAX_DEPTH: number;
+    INCLUDE_NON_ENUMERABLE: boolean;
+    INCLUDE_SYMBOLS: boolean;
+    ENABLE_SUBCLASSING: boolean;
+    USE_AGGREGATE_ERROR: boolean;
+    USE_CAUSE_ERROR: boolean;
+    PATCH_TO_STRING: boolean;
+}
+
+export const normalizeError: NormalizeErrorFn = <T = DynamicError>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T => {
+    const opts = {...defaultOptions(), ...options};
+    return _normalize(input, opts, 0, new WeakSet()) as T;
 };
 
-const HAS_ERROR_OPTIONS = supportsErrorOptions();
-const HAS_AGGREGATE_ERROR = supportsAggregateError();
+// Default options for normalizeError
+normalizeError.MAX_DEPTH = 16;
+normalizeError.INCLUDE_NON_ENUMERABLE = false;
+normalizeError.INCLUDE_SYMBOLS = false;
+normalizeError.ENABLE_SUBCLASSING = false;
+normalizeError.USE_AGGREGATE_ERROR = true;
+normalizeError.USE_CAUSE_ERROR = true;
+normalizeError.PATCH_TO_STRING = false;
 
-export function normalizeError<T = DynamicError>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T {
-    const opts = {...defaultOptions, ...options};
-    return _normalize(input, opts, 0, new WeakSet()) as T;
-}
+const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
+    originalStack: undefined,
+    maxDepth: normalizeError.MAX_DEPTH,
+    includeNonEnumerable: normalizeError.INCLUDE_NON_ENUMERABLE,
+    includeSymbols: normalizeError.INCLUDE_SYMBOLS,
+    enableSubclassing: normalizeError.ENABLE_SUBCLASSING,
+    useAggregateError: normalizeError.USE_AGGREGATE_ERROR,
+    useCauseError: normalizeError.USE_CAUSE_ERROR,
+    patchToString: normalizeError.PATCH_TO_STRING,
+});
 
 function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
     if (depth >= opts.maxDepth) {
