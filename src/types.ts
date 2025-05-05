@@ -36,14 +36,18 @@ type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
 export const isString = (input: unknown): input is string => typeof input === 'string';
 export const isArray = Array.isArray as (input: unknown) => input is unknown[];
 export const isError = (input: unknown): input is Error => input instanceof Error;
-export const isErrorLike = (input: unknown): input is ErrorShape => input instanceof Error;
+export const isErrorLike = (value: unknown): value is ErrorShape => isObject(value) && ('message' in value || 'name' in value);
 export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
 export const isSymbol = (input: unknown): input is symbol => typeof input === 'symbol';
-export const isObject = (input: unknown): input is object => typeof input === 'object' && input != null;
+//export const isObject = (input: unknown): input is object => typeof input === 'object' && input != null;
+export const isObject = (value: unknown): value is Record<string | number | symbol, unknown> | object => typeof value === 'object' && value !== null;
 export const isUndefined = (input: unknown): input is undefined => input === undefined;
-export const isPrimitive = (input: unknown): input is string | number | boolean | bigint | symbol | null | undefined => {
-    return input == null || ['string', 'number', 'boolean', 'bigint', 'symbol'].includes(typeof input);
+export const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined | symbol | bigint => {
+    return !isObject(value) && typeof value !== 'function';
 };
+// export const isPrimitive = (input: unknown): input is string | number | boolean | bigint | symbol | null | undefined => {
+//     return input == null || ['string', 'number', 'boolean', 'bigint', 'symbol'].includes(typeof input);
+// };
 
 export const hasProp = <T extends object, K extends PropertyKey>(obj: T, prop: K): obj is T & Record<K, unknown> => {
     return Object.prototype.hasOwnProperty.call(obj, prop);

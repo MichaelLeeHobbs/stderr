@@ -1,7 +1,8 @@
-// src/normalizeError.ts
+// src/normalizeErrorV2.ts
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
+
 
 import {Dictionary, ErrorRecord, ErrorShape, InspectOptions, isArray, isErrorLike, isFunction, isObject, isPrimitive, isString, isSymbol} from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
@@ -64,49 +65,68 @@ const unknownToString = (input: unknown): string => {
     if (isString(input)) {
         return input;
     }
-    // if (isArray(input)) {
-    //     return input.map(unknownToString).join(', ');
-    // }
     if (isPrimitive(input)) {
         return String(input);
     }
     if (isObject(input)) {
         try {
-            return JSON.stringify(input);
+            // Avoid relying on JSON.stringify for Errors as it often yields {}
+            if (isErrorLike(input) && input.message) {
+                return input.message;
+            }
+            if (isErrorLike(input) && input.name) {
+                return input.name;
+            }
+            return Object.prototype.toString.call(input); // Safer fallback
         } catch {
-            return Object.prototype.toString.call(input);
+            /* node:coverage ignore next 2 */
+            return String(input);
         }
     }
     return String(input);
 };
 
+// Forward declarations needed due to circular dependencies between functions
+// eslint-disable-next-line prefer-const
+let normalizeUnknown: (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => unknown;
+// eslint-disable-next-line prefer-const
+let normalizeObjectToError: (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => ErrorShape;
+
 const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    // console.log('normalizeMetaData', {target, source, opts, depth, seen});
-    // Now we attach the rest of the properties
+    // console.log('normalizeMetaData', {target, source, opts, depth, seen}); // Keep for debugging if needed
     const metadataKeys = extractMetaData(source, opts);
     for (const key of metadataKeys) {
         try {
-            let value = source[key as keyof typeof source];
             const keyStr = key.toString();
-            if ((isSymbol(key) || isSymbol(value)) && !opts.includeSymbols) {
+            // Avoid reprocessing standard properties that normalizeObjectToError already handled
+            if (keyStr === 'name' || keyStr === 'message' || keyStr === 'stack' || keyStr === 'cause' || keyStr === 'errors') {
                 continue;
             }
-            if (isObject(value) && seen.has(value)) {
-                value = '<Circular>';
+
+            let value = source[key as keyof typeof source];
+
+            if (isSymbol(key) && !opts.includeSymbols) {
+                continue; // Skip property if key is symbol and symbols not included
             }
-            if (isErrorLike(value)) {
-                value = normalizeObjectToError(value, opts, depth + 1, seen);
-            }
-            if (isArray(value)) {
-                value = value.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
-            }
-            if (isObject(value)) {
+
+            // Use normalizeUnknown for any non-primitive value.
+            // It handles depth checks, circular refs, and delegates normalization (like to normalizeObjectToError).
+            if (!isPrimitive(value)) {
+                // Pass depth + 1 as we are descending into a property
                 value = normalizeUnknown(value, opts, depth + 1, seen);
+            } else if (isSymbol(value)) {
+                // Handle primitive symbols based on options
+                if (!opts.includeSymbols) {
+                    value = undefined; // Mark for skipping if value is symbol and symbols not included
+                } else {
+                    value = value.toString();
+                }
             }
-            if (isSymbol(value)) {
-                value = value.toString();
+
+            // Assign if value is not undefined (e.g., wasn't a skipped symbol)
+            if (value !== undefined) {
+                target[keyStr] = value;
             }
-            target[keyStr] = value;
         } /* node:coverage ignore next 2 */ catch {
             // TODO: someway to debug - we shouldn't end up here but who knows
         }
@@ -125,178 +145,299 @@ const normalizePrimitiveToError = (input: unknown): ErrorShape => {
     if (input === null) {
         return new Error('Unknown error (Null)') as ErrorShape;
     }
+    // Use Error constructor for primitives
     return new Error(unknownToString(input)) as ErrorShape;
 };
 
 // We don't want to force the error shape on purely unknown objects
-const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
+normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
+    // 1. Handle depth limit first
     if (depth >= opts.maxDepth) {
+        // Return a placeholder string instead of an Error for max depth reached within unknown structures
         return `<Max depth of ${depth} reached>`;
     }
+
+    // 2. Handle primitives (including symbols based on options)
     if (isPrimitive(input)) {
-        if (isSymbol(input) && !opts.includeSymbols) {
-            return null;
+        if (isSymbol(input)) {
+            // Return string representation if included, otherwise undefined to signal skipping
+            return opts.includeSymbols ? input.toString() : undefined;
         }
-        return input;
+        return input; // Other primitives pass through
     }
+
+    // 3. Handle circular references for objects/arrays
+    // Check *before* adding to seen set
     if (seen.has(input)) {
-        return '<Circular>';
+        return '<Circular>'; // Use placeholder string for circular refs in unknown structures
+    }
+    // Add to seen set *before* processing/recursing
+    seen.add(input);
+
+    // 4. Handle specific object types
+    if (isArray(input)) {
+        // Recursively normalize array elements, passing depth + 1
+        return input.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
+    }
+
+    if (isErrorLike(input)) {
+        // Delegate ErrorLike objects to normalizeObjectToError
+        // Pass the *current* depth, as normalizeObjectToError handles its own internal depth checks/recursion
+        return normalizeObjectToError(input, opts, depth, seen);
     }
 
     if (isObject(input)) {
-        seen.add(input);
-    }
-    if (isArray(input)) {
-        return input.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
-    }
-    // if is error like but not error shaped
-    if (isErrorLike(input)) {
-        return normalizeObjectToError(input, opts, depth + 1, seen);
-    }
-    if (isObject(input)) {
+        // Plain objects (not Errors, not Arrays)
         const obj = input as ErrorRecord;
         const normalized: ErrorRecord = {};
-        for (const [k, v] of Object.entries(obj)) {
-            if ((isSymbol(k) || isSymbol(v)) && !opts.includeSymbols) {
+        // Use extractMetaData to respect includeNonEnumerable/includeSymbols for plain objects too
+        const keys = extractMetaData(obj, opts);
+        for (const key of keys) {
+            const keyStr = key.toString();
+            if (isSymbol(key) && !opts.includeSymbols) {
                 continue;
+            } // Redundant check? extractMetaData should handle. Safety.
+
+            let value = obj[key as keyof typeof obj];
+            // Recursively normalize property values, passing depth + 1
+            if (!isPrimitive(value)) {
+                value = normalizeUnknown(value, opts, depth + 1, seen);
+            } else if (isSymbol(value)) {
+                if (!opts.includeSymbols) {
+                    value = undefined;
+                } else {
+                    value = value.toString();
+                }
             }
-            normalized[k] = normalizeUnknown(v, opts, depth + 1, seen);
+
+            if (value !== undefined) {
+                normalized[keyStr] = value;
+            }
         }
         return normalized;
     }
-    // Fallback
+
+    // Fallback for unexpected types (should be rare after previous checks)
+    /* node:coverage ignore next */
     return String(input);
 };
 
-const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    let shouldBeAggregateError = false;
-    const errorShape: ErrorShape = {};
+normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
+    // Depth check (for cause/errors recursion within this function)
+    // Note: The initial call's depth and circular check is handled by the caller (normalizeError or normalizeUnknown)
     if (depth >= opts.maxDepth) {
+        // Return an actual Error instance when max depth is hit during Error normalization
         return new Error(`[Max depth of ${depth} reached]`) as ErrorShape;
     }
-    if (seen.has(input)) {
-        return new Error('[Circular]') as ErrorShape;
-    }
-    seen.add(input);
 
+    // The caller (normalizeUnknown or normalizeError) is responsible for the seen check/add
+
+    let shouldBeAggregateError = false;
+    const errorShape: Partial<ErrorShape> = {}; // Use Partial initially
+
+    // --- Normalize Cause ---
     if (input.cause) {
-        // We expect the cause to be an error
-        errorShape.cause = normalizeUnknownToError(input.cause, opts, depth + 1, seen);
+        // Use normalizeUnknown for cause - it handles primitives, errors, objects, depth, circular refs
+        const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
+        // Only attach cause if it normalized to an ErrorShape (normalizeUnknown calls normalizeObjectToError for ErrorLike)
+        // Primitives or plain objects in cause become Errors via normalizeUnknown->normalizeObjectToError or normalizePrimitiveToError path
+        if (isErrorLike(normalizedCause)) {
+            errorShape.cause = normalizedCause as ErrorShape;
+        } else if (isPrimitive(normalizedCause)) {
+            errorShape.cause = normalizePrimitiveToError(normalizedCause);
+        } else if (isObject(normalizedCause)) {
+            // If cause was an object but not ErrorLike, normalize it to ErrorShape
+            errorShape.cause = normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
+        }
     }
+
+    // --- Normalize Errors (for AggregateError) ---
     if (isArray(input.errors)) {
         shouldBeAggregateError = true;
-        errorShape.name = 'AggregateError';
-        errorShape.message = 'AggregateError';
-        // We expect the errors to be an array of errors if errors is an array
-        errorShape.errors = input.errors.map((e: unknown) => normalizeUnknownToError(e, opts, depth + 1, seen));
+        errorShape.name = unknownToString(input.name) || 'AggregateError'; // Preserve original name if possible
+        errorShape.message = unknownToString(input.message) || 'AggregateError'; // Preserve original message
+        // Normalize each item in the errors array
+        errorShape.errors = input.errors
+            .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
+            // Filter out undefined results (e.g. skipped symbols) and wrap non-errors
+            .map(ne => {
+                if (isErrorLike(ne)) {
+                    return ne as ErrorShape;
+                }
+                if (isPrimitive(ne)) {
+                    return normalizePrimitiveToError(ne);
+                }
+                if (isObject(ne)) {
+                    return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
+                }
+                return null; // Mark for filtering
+            })
+            .filter(ne => ne !== null) as ErrorShape[]; // Ensure it's ErrorShape[]
     } else if (isObject(input.errors)) {
-        errorShape.name = 'AggregateError';
-        errorShape.message = 'AggregateError';
-        // We expect the errors to be an object of errors which isn't an AggregateError
-        const normalized: ErrorRecord = {};
-        for (const [k, v] of Object.entries(input.errors)) {
-            if ((isSymbol(k) || isSymbol(v)) && !opts.includeSymbols) {
+        // Handle object map of errors (non-standard but seen)
+        // Don't automatically assume AggregateError for object map, keep original name/message if present
+        errorShape.name = unknownToString(errorShape.name) || 'Error';
+        errorShape.message = unknownToString(errorShape.message) || '';
+        const normalizedErrors: ErrorRecord = {};
+        const errorKeys = extractMetaData(input.errors, opts); // Respect options for keys
+        for (const key of errorKeys) {
+            const keyStr = key.toString();
+            if (isSymbol(key) && !opts.includeSymbols) {
                 continue;
             }
-            const key = k.toString();
-            normalized[key] = normalizeUnknownToError(v, opts, depth + 1, seen);
-        }
-        errorShape.errors = normalized;
-    } else if (input.errors) {
-        errorShape.name = 'AggregateError';
-        errorShape.message = 'AggregateError';
-        shouldBeAggregateError = true;
-        // If we get here we will treat this is an AggregateError of 1 error
-        errorShape.errors = [normalizeUnknownToError(input.errors, opts, depth + 1, seen)];
-    }
 
-    // TODO: I feel like we could do better here
-    errorShape.name = unknownToString(input.name || errorShape.name || 'Error');
-    if (input.message) {
-        // @ts-expect-error not really sure what to do if we get a non-string here
-        errorShape.message = isObject(input.message)
-            ? normalizeUnknown(input.message || '', opts, depth + 1, seen)
-            : unknownToString(input.message || errorShape.message || unknownToString(input));
-    }
+            const value = input.errors[key as keyof typeof input.errors];
+            const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
 
-    // Start building the error
-    let e: ErrorShape;
-    if (opts.enableSubclassing && isFunction((globalThis as Dictionary)[errorShape.name])) {
-        const maybeCtor = (globalThis as Dictionary)[errorShape.name];
-        e = new Error(errorShape.message) as ErrorShape;
-
-        if (isFunction(maybeCtor) && maybeCtor.prototype instanceof Error) {
-            try {
-                // @ts-expect-error unknown constructor has any type
-                e = new maybeCtor(errorShape.message) as ErrorShape;
-            } catch {
-                // ignore errors in constructor
+            if (isErrorLike(normalizedValue)) {
+                normalizedErrors[keyStr] = normalizedValue as ErrorShape;
+            } else if (isPrimitive(normalizedValue)) {
+                // Wrap primitives in Error
+                normalizedErrors[keyStr] = normalizePrimitiveToError(normalizedValue);
+            } else if (isObject(normalizedValue)) {
+                // Normalize object errors
+                normalizedErrors[keyStr] = normalizeObjectToError(normalizedValue as ErrorRecord, opts, depth + 1, seen);
             }
         }
-    } else if (shouldBeAggregateError && HAS_AGGREGATE_ERROR && opts.useAggregateError) {
-        // @ts-expect-error AggregateError may not be a supported property depending on the environment
-        e = new AggregateError(errorShape.errors, errorShape.message) as ErrorShape;
-    } else if (HAS_ERROR_OPTIONS && opts.useCauseError && errorShape.cause) {
-        // @ts-expect-error cause may not be a supported property depending on the environment
-        e = new Error(errorShape.message, {cause: errorShape.cause}) as ErrorShape;
+        errorShape.errors = normalizedErrors; // Assign the object map
+    } else if (input.errors) {
+        // Handle single non-array/non-object error property (treat as single-item aggregate)
+        shouldBeAggregateError = true;
+        errorShape.name = unknownToString(input.name) || 'AggregateError';
+        errorShape.message = unknownToString(input.message) || 'AggregateError';
+        const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
+        if (isErrorLike(normalizedSingleError)) {
+            errorShape.errors = [normalizedSingleError as ErrorShape];
+        } else if (normalizedSingleError !== null && normalizedSingleError !== undefined) {
+            errorShape.errors = [normalizePrimitiveToError(normalizedSingleError)];
+        } else {
+            errorShape.errors = []; // Empty array if normalization failed
+        }
+    }
+
+    // --- Determine Name and Message ---
+    // Prioritize existing name/message, provide defaults if necessary
+    errorShape.name = unknownToString(input.name || errorShape.name /* from errors handling */ || 'Error');
+    if (input.message !== undefined && input.message !== null) {
+        // Normalize message if it's an object, otherwise convert to string
+        errorShape.message = isObject(input.message) ? unknownToString(normalizeUnknown(input.message, opts, depth + 1, seen)) : unknownToString(input.message);
     } else {
+        // Use message derived from errors handling or fallback based on name/input
+        errorShape.message = errorShape.message !== undefined ? unknownToString(errorShape.message) : '';
+    }
+    // Ensure name is not empty
+    if (!errorShape.name) {
+        errorShape.name = 'Error';
+    }
+
+    // --- Construct the Base Error Instance ---
+    let e: ErrorShape;
+    const Ctor = globalThis[errorShape.name as keyof typeof globalThis] as typeof Error | undefined;
+    let nativeCauseUsed = false;
+
+    if (opts.enableSubclassing && isFunction(Ctor) && Ctor.prototype instanceof Error) {
+        try {
+            // Attempt to construct using the subclass constructor
+            e = new Ctor(errorShape.message) as ErrorShape;
+            // Ensure name matches if constructor changes it
+            e.name = errorShape.name;
+        } catch {
+            // Fallback if subclass constructor fails
+            e = new Error(errorShape.message) as ErrorShape;
+            e.name = errorShape.name; // Set name on fallback
+        }
+    } else if (shouldBeAggregateError && HAS_AGGREGATE_ERROR && opts.useAggregateError && isArray(errorShape.errors)) {
+        // Use AggregateError if applicable and enabled
+        // @ts-expect-error AggregateError may not be supported; errors array is validated above
+        e = new AggregateError(errorShape.errors, errorShape.message) as ErrorShape;
+        e.name = errorShape.name; // Ensure name is consistent
+        nativeCauseUsed = true;
+    } else if (HAS_ERROR_OPTIONS && opts.useCauseError && errorShape.cause) {
+        // Use native cause if applicable and enabled
+        // @ts-expect-error cause may not be supported
+        e = new Error(errorShape.message, {cause: errorShape.cause}) as ErrorShape;
+        e.name = errorShape.name;
+    } else {
+        // Default basic Error constructor
         e = new Error(errorShape.message) as ErrorShape;
+        e.name = errorShape.name;
     }
 
-    // Attach basic properties
-    e.name = errorShape.name;
-    // Dont attach the message if it is undefined
-    if (errorShape.message) {
-        e.message = errorShape.message;
-    }
+    // --- Attach Properties to the Constructed Error ---
 
-    // Attach cause if native not used
-    if (!opts.useCauseError && errorShape.cause) {
+    // Attach cause if native cause wasn't used (and cause exists)
+    if (errorShape.cause && (!nativeCauseUsed || !e.cause)) {
         e.cause = errorShape.cause;
     }
 
-    // Attach errors
-    if (isObject(errorShape.errors)) {
+    // Attach errors if it exists (and wasn't handled by AggregateError constructor)
+    // This handles the object map case and the fallback when useAggregateError is false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (errorShape.errors && !(e instanceof (globalThis as any).AggregateError && isArray(errorShape.errors))) {
         e.errors = errorShape.errors;
     }
 
-    // Now we attach the rest of the properties.
-    // Do not depth + 1 as normalizeMetaData will do that if needed
+    // --- Copy Metadata ---
+    // Call normalizeMetaData to copy remaining properties from the original input object `source`
+    // Pass the *current* depth, normalizeMetaData will increment for nested properties
     return normalizeMetaData(e, input, opts, depth, seen);
 };
 
-// Is we get here we want an Error Shaped object back
-const normalizeUnknownToError = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape | null => {
-    // Turn a primitive into an error
-    if (isPrimitive(input)) {
-        return normalizePrimitiveToError(input);
-    }
-    return normalizeObjectToError(input as ErrorRecord, opts, depth + 1, seen);
-};
-
-export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {originalStack: undefined}, depth = 0): T => {
+export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
     const seen = new WeakSet<object>();
     const opts = {...defaultOptions(), ...options};
-    let e = input as ErrorShape;
+
+    let e: ErrorShape;
+
+    // Handle primitives first
     if (isPrimitive(input)) {
         if (isSymbol(input) && !opts.includeSymbols) {
-            throw new TypeError('Input is a symbol and includeSymbols is false');
+            // Consistent with normalizeUnknown, maybe throw? Or return a default error?
+            // Let's throw, as normalizing a non-included symbol makes little sense.
+            throw new TypeError('Input is a symbol, but includeSymbols option is false.');
         }
         e = normalizePrimitiveToError(input);
-    } else if (isFunction(input)) {
-        // If we get a function we want to treat it as a function
-        e = normalizePrimitiveToError(input.toString());
-    } else if (isArray(input)) {
-        e = normalizeObjectToError({errors: input}, opts, depth, seen);
     } else {
-        e = normalizeObjectToError(input as ErrorShape, opts, depth, seen);
+        // For non-primitives (objects, arrays, functions, etc.)
+        // Add to seen set *before* calling the main normalization
+        if (seen.has(input)) {
+            // Should not happen at top level unless input itself is weird
+            /* node:coverage ignore next 2 */
+            e = new Error('[Circular Input]') as ErrorShape;
+        } else {
+            seen.add(input);
+
+            // Delegate based on type
+            if (isFunction(input)) {
+                // Treat functions like primitives (convert to string)
+                e = normalizePrimitiveToError(input.toString());
+            } else if (isArray(input)) {
+                // Treat array input as a request for an AggregateError
+                e = normalizeObjectToError({errors: input, name: 'AggregateError', message: 'AggregateError'}, opts, depth, seen);
+            } else if (isObject(input)) {
+                // Main path for objects (including Error instances)
+                e = normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
+            } else {
+                // Fallback for other unexpected non-primitive types
+                /* node:coverage ignore next 2 */
+                e = normalizePrimitiveToError(String(input));
+            }
+        }
     }
+
+    // Apply originalStack if provided
     if (opts.originalStack) {
         e.stack = opts.originalStack;
+    } else if (input instanceof Error && input.stack && !e.stack) {
+        // Preserve original stack if normalization lost it (e.g. subclassing failed)
+        e.stack = input.stack;
     }
+
+    // Apply toString override if requested
     if (opts.patchToString) {
         overrideToString(e);
     }
+
     return e as T;
 };
 
@@ -325,8 +466,9 @@ function overrideToString(error: ErrorShape) {
         try {
             Object.defineProperty(error, 'toString', {
                 value(): string {
-                    // in Node: use inspect for full object+metadata
-                    return nodeInspect!(this, {depth: normalizeError.maxDepth, compact: false});
+                    // Use inspect with controlled depth. Note: maxDepth here refers to *inspection* depth,
+                    // not the normalization depth limit already applied. Use a reasonable depth for inspection.
+                    return nodeInspect!(this, {depth: normalizeError.maxDepth, compact: false, breakLength: Infinity});
                 },
                 writable: true,
                 configurable: true,

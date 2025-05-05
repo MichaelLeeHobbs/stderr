@@ -73,6 +73,34 @@ describe('standardizeError', () => {
         });
     });
 
+    describe('Metadata handling', () => {
+        it('normalizes metadata into an Error', () => {
+            const obj = {message: 'oops', foo: 'bar'};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.foo).toBe('bar');
+        });
+
+        it('normalizes metadata with custom stack', () => {
+            const obj = {message: 'oops', foo: 'bar'};
+            const err = normalizeError(obj, {originalStack: 'CUSTOM_STACK'});
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.foo).toBe('bar');
+            expect(err.stack).toBe('CUSTOM_STACK');
+        });
+
+        it('normalizes metadata with object values', () => {
+            const obj = {message: 'oops', foo: {bar: 'baz'}};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.foo).toBeInstanceOf(Object);
+            expect((err.foo as {bar: string}).bar).toBe('baz');
+        });
+    });
+
     // AggregateError behavior
     describe('AggregateError handling', () => {
         it('preserves AggregateError with normalized errors', () => {
@@ -146,14 +174,8 @@ describe('standardizeError', () => {
             const firstCause = err.cause as Error;
             expect(firstCause).toBeInstanceOf(Error);
             expect((firstCause as ErrorShape).cause).toBeUndefined();
-            // FIXME: the returned error looks correct. I think we just need to fix the test
-            // Error [Undefined Error]
-            //         at normalizeObjectToError (C:\Users\mhobb\WebstormProjects\standardize-error\src\normalizeErrorV2.ts:242:13)
-            //         at normalizeError (C:\Users\mhobb\WebstormProjects\standardize-error\src\normalizeErrorV2.ts:293:13)
-            //         ... 14 lines matching cause stack trace ...
-            //         at async runTest (C:\Users\mhobb\WebstormProjects\standardize-error\node_modules\.pnpm\jest-runner@29.7.0\node_modules\jest-runner\build\runTest.js:444:34) {
-            //       [cause]: Error: [Max depth of 2 reached]
-            expect(err.toString()).toContain('Error: {"cause":{"cause":{"message":"deep"}}}');
+            expect(err.toString()).toContain('Error');
+            expect(err.toString()).toContain('[cause]: Error: <Max depth of 1 reached>');
         });
 
         it('normalizes deeply nested cause chains by default', () => {
@@ -161,7 +183,7 @@ describe('standardizeError', () => {
             const err = normalizeError<ErrorShape>(nested);
             const c1 = err.cause as Error;
             const c2 = (c1 as ErrorShape).cause as Error;
-            expect(c2.message).toBe('inner');
+            expect(c2?.message).toBe('inner');
         });
     });
 
@@ -220,8 +242,12 @@ describe('standardizeError', () => {
             const mongooseErr: unknown = {name: 'ValidationError', errors: {field: {message: 'invalid'}}};
             const me = normalizeError(mongooseErr, {patchToString: true});
             expect(me.name).toBe('ValidationError');
+
+            console.log(me);
             // @ts-expect-error: errors field added dynamically
             expect(me.errors.field).toBeInstanceOf(Error);
+            // @ts-expect-error: errors field added dynamically
+            console.log(me.errors.field);
             // @ts-expect-error: errors field added dynamically
             expect(me.errors.field.message).toBe('invalid');
         });
@@ -427,7 +453,7 @@ describe('standardizeError', () => {
             // @ts-expect-error: cause is added dynamically
             e.cause = e;
             const err = normalizeError<ErrorShape>(e);
-            expect((err.cause as ErrorShape).message).toBe('[Circular]');
+            expect((err.cause as ErrorShape).message).toBe('<Circular>');
         });
 
         it('detects circular cause in object', () => {
@@ -435,7 +461,7 @@ describe('standardizeError', () => {
             // @ts-expect-error: cause is added dynamically
             obj.cause = obj;
             const err = normalizeError(obj);
-            expect((err.cause as ErrorShape).message).toBe('[Circular]');
+            expect((err.cause as ErrorShape).message).toBe('<Circular>');
         });
 
         it('detects circular metadata', () => {
@@ -444,6 +470,54 @@ describe('standardizeError', () => {
             obj.self = obj;
             const err = normalizeError<ErrorShape>(obj);
             expect(err.self).toBe('<Circular>');
+        });
+    });
+
+    // Edge cases
+    describe('Edge cases', () => {
+        it('handles name as object', () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const obj: any = {name: {foo: 'bar'}, message: 'oops'};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.name).toBe('[object Object]');
+        });
+
+        it('handles message as object', () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const obj: any = {name: 'Error', message: {foo: 'bar'}};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('[object Object]');
+            expect(err.name).toBe('Error');
+        });
+
+        it('handles name as Error Like', () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const obj: any = {name: {name: 'Error Like'}, message: 'oops'};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.name).toBe('Error Like');
+        });
+
+        it('handles message as Error Like', () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const obj: any = {name: 'Error', message: new Error('foo')};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('foo');
+            expect(err.name).toBe('Error');
+        });
+
+        it('handles name as Function', () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const obj: any = {name: () => 'foo', message: 'oops'};
+            const err = normalizeError(obj);
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('oops');
+            expect(err.name).toBe("() => 'foo'");
         });
     });
 });

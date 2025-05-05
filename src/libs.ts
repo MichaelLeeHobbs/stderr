@@ -28,9 +28,6 @@ interface ExtractMetaDataOptions {
 
 export function extractMetaData(obj: object, opts: ExtractMetaDataOptions = {}): (string | symbol)[] {
     return Reflect.ownKeys(obj).filter(key => {
-        if (['name', 'message', 'cause', 'errors'].includes(key as string)) {
-            return false;
-        }
         // symbol filtering
         if (isSymbol(key) && !opts.includeSymbols) {
             return false;
