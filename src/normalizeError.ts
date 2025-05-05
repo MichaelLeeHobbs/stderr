@@ -5,12 +5,12 @@
 
 import {
     Dictionary,
-    DynamicError,
     ErrorRecord,
+    ErrorShape,
     hasProp,
     InspectOptions,
     isArray,
-    isError,
+    isErrorLike,
     isFunction,
     isObject,
     isPrimitive,
@@ -62,7 +62,8 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
 }
 
 interface NormalizeErrorFn {
-    <T = DynamicError>(input: unknown, options?: NormalizeOptions): T;
+    <T = ErrorShape>(input: unknown, options?: NormalizeOptions): T;
+
     maxDepth: number;
     includeNonEnumerable: boolean;
     includeSymbols: boolean;
@@ -72,7 +73,7 @@ interface NormalizeErrorFn {
     patchToString: boolean;
 }
 
-export const normalizeError: NormalizeErrorFn = <T = DynamicError>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T => {
+export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {originalStack: undefined}): T => {
     const opts = {...defaultOptions(), ...options};
     return _normalize(input, opts, 0, new WeakSet()) as T;
 };
@@ -97,9 +98,9 @@ const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     patchToString: normalizeError.patchToString,
 });
 
-function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
+function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): ErrorShape {
     if (depth >= opts.maxDepth) {
-        const e = new Error('Max depth reached') as DynamicError;
+        const e = new Error('Max depth reached') as ErrorShape;
         if (opts.patchToString) {
             overrideToString(e);
         }
@@ -107,14 +108,14 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     }
 
     // 1. Already Error
-    if (isError(input)) {
+    if (isErrorLike(input)) {
         seen.add(input);
         return normalizeExistingError(input, opts, depth, seen);
     }
 
     // 2. Primitive string
     if (isString(input)) {
-        const e = new Error(input) as DynamicError;
+        const e = new Error(input) as ErrorShape;
         // Override stack if requested
         if (opts.originalStack) {
             e.stack = opts.originalStack;
@@ -127,7 +128,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
 
     // 3. Other primitives
     if (isPrimitive(input)) {
-        const e = new Error(String(input)) as DynamicError;
+        const e = new Error(String(input)) as ErrorShape;
         // Override stack if requested
         if (opts.originalStack) {
             e.stack = opts.originalStack;
@@ -139,7 +140,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     if (isObject(input)) {
         const obj = input as ErrorRecord;
         if (seen.has(input)) {
-            return new Error('<Circular>') as DynamicError;
+            return new Error('<Circular>') as ErrorShape;
         }
         seen.add(input);
 
@@ -167,7 +168,7 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
         const hasErrorsArray = isArray(rawErrors) && rawErrors.length > 0;
 
         // Determine if we should create AggregateError
-        let error: DynamicError;
+        let error: ErrorShape;
         if (hasErrorsArray) {
             error = normalizeAggregateError(rawErrors, message, opts, depth, seen);
         } else if (opts.enableSubclassing && isFunction((globalThis as Dictionary)[name])) {
@@ -201,10 +202,10 @@ function _normalize(input: unknown, opts: Required<NormalizeOptionsInternal>, de
     }
 
     // Fallback
-    return new Error(String(input)) as DynamicError;
+    return new Error(String(input)) as ErrorShape;
 }
 
-function normalizeExistingError(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
+function normalizeExistingError(err: ErrorShape, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): ErrorShape {
     // Coerce message
     if (!isString(err.message)) {
         err.message = String(err.message || '');
@@ -225,27 +226,29 @@ function normalizeExistingError(err: DynamicError, opts: Required<NormalizeOptio
     return err;
 }
 
-function normalizeErrorWithCause(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
+function normalizeErrorWithCause(err: ErrorShape, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): ErrorShape {
     if (hasProp(err, 'cause')) {
         if (isObject(err.cause) && seen.has(err.cause)) {
             err.cause = new Error('<Circular>');
         } else {
             const c = err.cause;
-            err.cause = isError(c) ? normalizeExistingError(c, opts, depth + 1, seen) : _normalize(c, opts, depth + 1, seen);
+            err.cause = isErrorLike(c) ? normalizeExistingError(c, opts, depth + 1, seen) : _normalize(c, opts, depth + 1, seen);
         }
     }
     return err;
 }
 
-function normalizeErrorWithErrors(err: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
+function normalizeErrorWithErrors(err: ErrorShape, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): ErrorShape {
     if (hasProp(err, 'errors')) {
         if (isArray(err.errors)) {
-            err.errors = err.errors.map((e: unknown) => (isError(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen)));
+            err.errors = err.errors.map((e: unknown) => {
+                return isErrorLike(e) ? normalizeExistingError(e, opts, depth + 1, seen) : _normalize(e, opts, depth + 1, seen);
+            });
         } else if (isObject(err.errors)) {
             const raw = err.errors as ErrorRecord;
             const normalized: ErrorRecord = {};
             for (const [k, v] of Object.entries(raw)) {
-                normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
+                normalized[k] = isErrorLike(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
             }
             err.errors = normalized;
         }
@@ -259,8 +262,8 @@ function normalizeAggregateError(
     opts: Required<NormalizeOptionsInternal>,
     depth: number,
     seen: WeakSet<object>
-): DynamicError {
-    let error: DynamicError;
+): ErrorShape {
+    let error: ErrorShape;
     // Normalize errors array1
     const errsArray = rawErrors.map(e => _normalize(e, opts, depth + 1, seen));
     if (HAS_AGGREGATE_ERROR && opts.useAggregateError) {
@@ -268,7 +271,7 @@ function normalizeAggregateError(
         error = new AggregateError(errsArray, message);
     } else {
         // Fallback to Error if AggregateError is not supported
-        error = new Error(message) as DynamicError;
+        error = new Error(message) as ErrorShape;
         error.errors = errsArray;
     }
     return error;
@@ -281,7 +284,7 @@ function normalizeSubclassError(
     opts: Required<NormalizeOptionsInternal>,
     depth: number,
     seen: WeakSet<object>
-): DynamicError {
+): ErrorShape {
     const maybeCtor = (globalThis as Dictionary)[name];
 
     // 1) make sure it’s actually a function…
@@ -289,7 +292,7 @@ function normalizeSubclassError(
     if (isFunction(maybeCtor) && maybeCtor.prototype instanceof Error) {
         try {
             // @ts-expect-error unknown constructor has any type
-            const error = new maybeCtor(message) as DynamicError;
+            const error = new maybeCtor(message) as ErrorShape;
             error.name = name;
             return error;
         } catch {
@@ -300,21 +303,21 @@ function normalizeSubclassError(
     return normalizeCauseError(rawCause, message, opts, depth, seen);
 }
 
-function normalizeCauseError(rawCause: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): DynamicError {
-    let error: DynamicError;
+function normalizeCauseError(rawCause: unknown, message: string, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>): ErrorShape {
+    let error: ErrorShape;
     // Use native cause support when available
     if (!isUndefined(rawCause) && HAS_ERROR_OPTIONS) {
-        const causeErr = isError(rawCause) ? normalizeExistingError(rawCause, opts, depth + 1, seen) : _normalize(rawCause, opts, depth + 1, seen);
+        const causeErr = isErrorLike(rawCause) ? normalizeExistingError(rawCause, opts, depth + 1, seen) : _normalize(rawCause, opts, depth + 1, seen);
         // @ts-expect-error cause may not be a supported property depending on the environment
-        error = new Error(message, {cause: causeErr}) as DynamicError;
+        error = new Error(message, {cause: causeErr}) as ErrorShape;
     } else {
-        error = new Error(message) as DynamicError;
+        error = new Error(message) as ErrorShape;
     }
     return error;
 }
 
 function attachMetaData(
-    error: DynamicError,
+    error: ErrorShape,
     source: ErrorRecord,
     metadataKeys: (string | symbol)[],
     opts: Required<NormalizeOptionsInternal>,
@@ -329,7 +332,7 @@ function attachMetaData(
             if (isObject(value) && seen.has(value)) {
                 value = '<Circular>';
             }
-            if (isError(value)) {
+            if (isErrorLike(value)) {
                 value = normalizeExistingError(value, opts, depth + 1, seen);
             }
             error[key] = value;
@@ -339,11 +342,11 @@ function attachMetaData(
     }
 }
 
-function attachCause(error: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, cause?: unknown) {
+function attachCause(error: ErrorShape, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, cause?: unknown) {
     if (isUndefined(cause) || (HAS_ERROR_OPTIONS && opts.useCauseError)) {
         return;
     }
-    const causeErr = isError(cause) ? normalizeExistingError(cause, opts, depth + 1, seen) : _normalize(cause, opts, depth + 1, seen);
+    const causeErr = isErrorLike(cause) ? normalizeExistingError(cause, opts, depth + 1, seen) : _normalize(cause, opts, depth + 1, seen);
     try {
         error.cause = causeErr;
     } /* node:coverage ignore next 2 */ catch {
@@ -351,11 +354,11 @@ function attachCause(error: DynamicError, opts: Required<NormalizeOptionsInterna
     }
 }
 
-function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, rawErrors: unknown) {
+function attachErrorsToObject(error: ErrorShape, opts: Required<NormalizeOptionsInternal>, depth: number, seen: WeakSet<object>, rawErrors: unknown) {
     if (isObject(rawErrors) && !isArray(rawErrors)) {
         const normalized: ErrorRecord = {};
         for (const [k, v] of Object.entries(rawErrors as ErrorRecord)) {
-            normalized[k] = isError(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
+            normalized[k] = isErrorLike(v) ? normalizeExistingError(v, opts, depth + 1, seen) : _normalize(v, opts, depth + 1, seen);
         }
         try {
             error.errors = normalized;
@@ -365,7 +368,7 @@ function attachErrorsToObject(error: DynamicError, opts: Required<NormalizeOptio
     }
 }
 
-function overrideToString(error: DynamicError) {
+function overrideToString(error: ErrorShape) {
     if (typeof nodeInspect === 'function') {
         try {
             Object.defineProperty(error, 'toString', {

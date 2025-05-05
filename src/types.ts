@@ -1,6 +1,6 @@
 // src/types.ts
 
-export type DynamicError = Omit<Error, 'name' | 'message'> & {
+export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     /** Error name - omitted and replaced with an optional name to reflect the real world */
     name?: string;
     /** Error message - omitted and replaced with an optional message to reflect the real world */
@@ -13,24 +13,14 @@ export type DynamicError = Omit<Error, 'name' | 'message'> & {
     [key: string | symbol]: unknown;
 };
 
-export type DynamicErrorWithErrorsArray = WithRequiredType<DynamicError, 'errors', DynamicError[]>;
-export type DynamicErrorWithErrorsObject = WithRequiredType<DynamicError, 'errors', Dictionary>;
+export type ErrorShapeWithErrorsArray = WithRequiredType<ErrorShape, 'errors', ErrorShape[]>;
+export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', Dictionary>;
 
 export type Dictionary = Record<string | symbol, unknown>;
 export type ErrorRecord = Dictionary;
+export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
 /* Helper Types */
-
-// /**
-//  * Makes the keys K of type T required.
-//  *
-//  * @typeParam T - The base object type.
-//  * @typeParam K - The keys of T to make required.
-//  */
-// type WithRequired<T, K extends keyof T> = T & {
-//     [P in K]-?: T[P];
-// };
-
 /**
  * Makes the keys K of type T required and enforces them to be of type V.
  *
@@ -45,10 +35,11 @@ type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
 /* Basic Type Guards */
 export const isString = (input: unknown): input is string => typeof input === 'string';
 export const isArray = Array.isArray as (input: unknown) => input is unknown[];
-export const isError = (input: unknown): input is DynamicError => input instanceof Error;
+export const isError = (input: unknown): input is Error => input instanceof Error;
+export const isErrorLike = (input: unknown): input is ErrorShape => input instanceof Error;
 export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
 export const isSymbol = (input: unknown): input is symbol => typeof input === 'symbol';
-export const isObject = (input: unknown): input is object => typeof input === 'object' && input !== null;
+export const isObject = (input: unknown): input is object => typeof input === 'object' && input != null;
 export const isUndefined = (input: unknown): input is undefined => input === undefined;
 export const isPrimitive = (input: unknown): input is string | number | boolean | bigint | symbol | null | undefined => {
     return input == null || ['string', 'number', 'boolean', 'bigint', 'symbol'].includes(typeof input);
@@ -56,6 +47,16 @@ export const isPrimitive = (input: unknown): input is string | number | boolean 
 
 export const hasProp = <T extends object, K extends PropertyKey>(obj: T, prop: K): obj is T & Record<K, unknown> => {
     return Object.prototype.hasOwnProperty.call(obj, prop);
+};
+
+export const isErrorShaped = (input: unknown): input is ErrorShape => {
+    if (!isObject(input)) {
+        return false;
+    }
+    const keys = Object.getOwnPropertyNames(input);
+    // TODO: I'm not sure if 'name' or 'message' alone should be enough to be considered an object error shaped
+    // TODO: what about code? Should we include it?
+    return keys.includes('name') || keys.includes('message') || keys.includes('cause') || keys.includes('errors') || keys.includes('stack');
 };
 
 /* Copy of Node.js util InspectOptions as we can't import this and be compatible with browsers */

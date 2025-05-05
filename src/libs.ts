@@ -1,12 +1,12 @@
 // src/libs.ts
-import {isError, isFunction, isSymbol} from './types';
+import {isErrorLike, isFunction, isSymbol} from './types';
 
 export function supportsErrorOptions(): boolean {
     try {
         // @ts-expect-error cause may not be a supported property depending on the environment
         const e = new Error('', {cause: new Error('x')});
         // @ts-expect-error cause may not be a supported property depending on the environment
-        return isError(e.cause);
+        return isErrorLike(e.cause);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }
