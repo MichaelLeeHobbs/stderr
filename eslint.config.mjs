@@ -18,7 +18,7 @@ export default [
         },
         rules: {
             'max-len': ['error', {code: 160}],
-            curly: ['error', 'all'],
+            // curly: ['error', 'all'],
             'prettier/prettier': 'warn',
             '@typescript-eslint/prefer-ts-expect-error': 'error', // Forces use of @ts-expect-error over @ts-ignore
         },

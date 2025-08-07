@@ -3,9 +3,7 @@ import {isErrorLike, isFunction, isSymbol} from './types';
 
 export function supportsErrorOptions(): boolean {
     try {
-        // @ts-expect-error cause may not be a supported property depending on the environment
         const e = new Error('', {cause: new Error('x')});
-        // @ts-expect-error cause may not be a supported property depending on the environment
         return isErrorLike(e.cause);
     } /* node:coverage ignore next 2 */ catch {
         return false;
@@ -14,7 +12,6 @@ export function supportsErrorOptions(): boolean {
 
 export function supportsAggregateError(): boolean {
     try {
-        // @ts-expect-error AggregateError may not be a supported property depending on the environment
         return isFunction(AggregateError);
     } /* node:coverage ignore next 2 */ catch {
         return false;

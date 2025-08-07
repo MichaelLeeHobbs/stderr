@@ -14,9 +14,9 @@
         /* Language and Environment */
 
         /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */
-        "target": "ES2019",
+        "target": "ESNext",
         /* Specify a set of bundled library declaration files that describe the target runtime environment. */
-        "lib": ["ES2019"],
+        "lib": ["ESNext"],
         // "jsx": "preserve",                                /* Specify what JSX code is generated. */
         // "libReplacement": true,                           /* Enable lib replacement. */
         // "experimentalDecorators": true,                   /* Enable experimental support for legacy experimental decorators. */
