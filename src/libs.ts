@@ -22,16 +22,11 @@ export function supportsAggregateError(): boolean {
 }
 
 interface ExtractMetaDataOptions {
-    includeSymbols?: boolean;
     includeNonEnumerable?: boolean;
 }
 
 export function extractMetaData(obj: object, opts: ExtractMetaDataOptions = {}): (string | symbol)[] {
     return Reflect.ownKeys(obj).filter(key => {
-        // symbol filtering
-        if (isSymbol(key) && !opts.includeSymbols) {
-            return false;
-        }
         // enumerable filtering
         const desc = Object.getOwnPropertyDescriptor(obj, key as string | symbol);
         // noinspection RedundantIfStatementJS

@@ -3,9 +3,10 @@
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
-
-import {Dictionary, ErrorRecord, ErrorShape, InspectOptions, isArray, isErrorLike, isFunction, isObject, isPrimitive, isString, isSymbol} from './types';
+import {Dictionary, ErrorRecord, ErrorShape, InspectOptions, isArray, isError, isErrorLike, isFunction, isObject, isPrimitive, isSymbol,} from './types';
 import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
+import * as console from 'node:console';
+import {primitiveToError, unknownToString} from './utils';
 
 let nodeInspect: ((obj: unknown, options?: InspectOptions) => string) | undefined;
 try {
@@ -26,8 +27,6 @@ export interface NormalizeOptions {
     maxDepth?: number;
     /** Include non-enumerable properties in metadata copying. */
     includeNonEnumerable?: boolean;
-    /** Include symbol-keyed properties in metadata copying. */
-    includeSymbols?: boolean;
     /** Attempt to preserve subclasses by using a constructor matching the name. */
     enableSubclassing?: boolean;
     /** Use AggregateError if available and applicable. */
@@ -42,7 +41,6 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
     originalStack: string | undefined;
     maxDepth: number;
     includeNonEnumerable: boolean;
-    includeSymbols: boolean;
     enableSubclassing: boolean;
     useAggregateError: boolean;
     useCauseError: boolean;
@@ -54,37 +52,11 @@ interface NormalizeErrorFn {
 
     maxDepth: number;
     includeNonEnumerable: boolean;
-    includeSymbols: boolean;
     enableSubclassing: boolean;
     useAggregateError: boolean;
     useCauseError: boolean;
     patchToString: boolean;
 }
-
-const unknownToString = (input: unknown): string => {
-    if (isString(input)) {
-        return input;
-    }
-    if (isPrimitive(input)) {
-        return String(input);
-    }
-    if (isObject(input)) {
-        try {
-            // Avoid relying on JSON.stringify for Errors as it often yields {}
-            if (isErrorLike(input) && input.message) {
-                return input.message;
-            }
-            if (isErrorLike(input) && input.name) {
-                return input.name;
-            }
-            return Object.prototype.toString.call(input); // Safer fallback
-        } catch {
-            /* node:coverage ignore next 2 */
-            return String(input);
-        }
-    }
-    return String(input);
-};
 
 // Forward declarations needed due to circular dependencies between functions
 // eslint-disable-next-line prefer-const
@@ -98,6 +70,7 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
     for (const key of metadataKeys) {
         try {
             const keyStr = key.toString();
+            console.log('normalizeMetaData key', {key, keyStr}); // Keep for debugging if needed
             // Avoid reprocessing standard properties that normalizeObjectToError already handled
             if (keyStr === 'name' || keyStr === 'message' || keyStr === 'stack' || keyStr === 'cause' || keyStr === 'errors') {
                 continue;
@@ -105,22 +78,13 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
 
             let value = source[key as keyof typeof source];
 
-            if (isSymbol(key) && !opts.includeSymbols) {
-                continue; // Skip property if key is symbol and symbols not included
-            }
-
             // Use normalizeUnknown for any non-primitive value.
             // It handles depth checks, circular refs, and delegates normalization (like to normalizeObjectToError).
             if (!isPrimitive(value)) {
                 // Pass depth + 1 as we are descending into a property
                 value = normalizeUnknown(value, opts, depth + 1, seen);
             } else if (isSymbol(value)) {
-                // Handle primitive symbols based on options
-                if (!opts.includeSymbols) {
-                    value = undefined; // Mark for skipping if value is symbol and symbols not included
-                } else {
-                    value = value.toString();
-                }
+                value = value.toString();
             }
 
             // Assign if value is not undefined (e.g., wasn't a skipped symbol)
@@ -132,21 +96,6 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
         }
     }
     return target;
-};
-
-const normalizePrimitiveToError = (input: unknown): ErrorShape => {
-    if (!isPrimitive(input)) {
-        throw new TypeError('Input must be a primitive value');
-    }
-
-    if (input === undefined) {
-        return new Error('Unknown error (Undefined)') as ErrorShape;
-    }
-    if (input === null) {
-        return new Error('Unknown error (Null)') as ErrorShape;
-    }
-    // Use Error constructor for primitives
-    return new Error(unknownToString(input)) as ErrorShape;
 };
 
 // We don't want to force the error shape on purely unknown objects
@@ -161,7 +110,7 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
     if (isPrimitive(input)) {
         if (isSymbol(input)) {
             // Return string representation if included, otherwise undefined to signal skipping
-            return opts.includeSymbols ? input.toString() : undefined;
+            return input.toString();
         }
         return input; // Other primitives pass through
     }
@@ -190,24 +139,17 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         // Plain objects (not Errors, not Arrays)
         const obj = input as ErrorRecord;
         const normalized: ErrorRecord = {};
-        // Use extractMetaData to respect includeNonEnumerable/includeSymbols for plain objects too
+        // Use extractMetaData to respect includeNonEnumerable for plain objects too
         const keys = extractMetaData(obj, opts);
         for (const key of keys) {
             const keyStr = key.toString();
-            if (isSymbol(key) && !opts.includeSymbols) {
-                continue;
-            } // Redundant check? extractMetaData should handle. Safety.
 
             let value = obj[key as keyof typeof obj];
             // Recursively normalize property values, passing depth + 1
             if (!isPrimitive(value)) {
                 value = normalizeUnknown(value, opts, depth + 1, seen);
             } else if (isSymbol(value)) {
-                if (!opts.includeSymbols) {
-                    value = undefined;
-                } else {
-                    value = value.toString();
-                }
+                value = value.toString();
             }
 
             if (value !== undefined) {
@@ -244,7 +186,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         if (isErrorLike(normalizedCause)) {
             errorShape.cause = normalizedCause as ErrorShape;
         } else if (isPrimitive(normalizedCause)) {
-            errorShape.cause = normalizePrimitiveToError(normalizedCause);
+            errorShape.cause = primitiveToError(normalizedCause);
         } else if (isObject(normalizedCause)) {
             // If cause was an object but not ErrorLike, normalize it to ErrorShape
             errorShape.cause = normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
@@ -265,7 +207,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
                     return ne as ErrorShape;
                 }
                 if (isPrimitive(ne)) {
-                    return normalizePrimitiveToError(ne);
+                    return primitiveToError(ne);
                 }
                 if (isObject(ne)) {
                     return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
@@ -282,9 +224,6 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         const errorKeys = extractMetaData(input.errors, opts); // Respect options for keys
         for (const key of errorKeys) {
             const keyStr = key.toString();
-            if (isSymbol(key) && !opts.includeSymbols) {
-                continue;
-            }
 
             const value = input.errors[key as keyof typeof input.errors];
             const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
@@ -293,7 +232,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
                 normalizedErrors[keyStr] = normalizedValue as ErrorShape;
             } else if (isPrimitive(normalizedValue)) {
                 // Wrap primitives in Error
-                normalizedErrors[keyStr] = normalizePrimitiveToError(normalizedValue);
+                normalizedErrors[keyStr] = primitiveToError(normalizedValue);
             } else if (isObject(normalizedValue)) {
                 // Normalize object errors
                 normalizedErrors[keyStr] = normalizeObjectToError(normalizedValue as ErrorRecord, opts, depth + 1, seen);
@@ -309,7 +248,11 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         if (isErrorLike(normalizedSingleError)) {
             errorShape.errors = [normalizedSingleError as ErrorShape];
         } else if (normalizedSingleError !== null && normalizedSingleError !== undefined) {
-            errorShape.errors = [normalizePrimitiveToError(normalizedSingleError)];
+            if (isPrimitive(normalizedSingleError)) {
+                errorShape.errors = [primitiveToError(normalizedSingleError)];
+            } else {
+                errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
+            }
         } else {
             errorShape.errors = []; // Empty array if normalization failed
         }
@@ -391,12 +334,7 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
 
     // Handle primitives first
     if (isPrimitive(input)) {
-        if (isSymbol(input) && !opts.includeSymbols) {
-            // Consistent with normalizeUnknown, maybe throw? Or return a default error?
-            // Let's throw, as normalizing a non-included symbol makes little sense.
-            throw new TypeError('Input is a symbol, but includeSymbols option is false.');
-        }
-        e = normalizePrimitiveToError(input);
+        e = primitiveToError(input);
     } else {
         // For non-primitives (objects, arrays, functions, etc.)
         // Add to seen set *before* calling the main normalization
@@ -407,20 +345,26 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
         } else {
             seen.add(input);
 
+            // If input is an Error and no originalStack provided, then preserve the original stack
+            if (isError(input) && !opts.originalStack) {
+                opts.originalStack = input.stack;
+                console.warn('Preserve originalStack option, this may not be supported in all environments', opts.originalStack);
+            }
+
             // Delegate based on type
             if (isFunction(input)) {
                 // Treat functions like primitives (convert to string)
-                e = normalizePrimitiveToError(input.toString());
+                e = primitiveToError(input.toString());
             } else if (isArray(input)) {
                 // Treat array input as a request for an AggregateError
                 e = normalizeObjectToError({errors: input, name: 'AggregateError', message: 'AggregateError'}, opts, depth, seen);
             } else if (isObject(input)) {
                 // Main path for objects (including Error instances)
                 e = normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
+                /* node:coverage ignore next 4 */
             } else {
                 // Fallback for other unexpected non-primitive types
-                /* node:coverage ignore next 2 */
-                e = normalizePrimitiveToError(String(input));
+                e = primitiveToError(String(input));
             }
         }
     }
@@ -428,9 +372,6 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
     // Apply originalStack if provided
     if (opts.originalStack) {
         e.stack = opts.originalStack;
-    } else if (input instanceof Error && input.stack && !e.stack) {
-        // Preserve original stack if normalization lost it (e.g. subclassing failed)
-        e.stack = input.stack;
     }
 
     // Apply toString override if requested
@@ -444,7 +385,6 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
 // Default options for normalizeError
 normalizeError.maxDepth = 8;
 normalizeError.includeNonEnumerable = false;
-normalizeError.includeSymbols = false;
 normalizeError.enableSubclassing = false;
 normalizeError.useAggregateError = true;
 normalizeError.useCauseError = true;
@@ -454,7 +394,6 @@ const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     originalStack: undefined,
     maxDepth: normalizeError.maxDepth,
     includeNonEnumerable: normalizeError.includeNonEnumerable,
-    includeSymbols: normalizeError.includeSymbols,
     enableSubclassing: normalizeError.enableSubclassing,
     useAggregateError: normalizeError.useAggregateError,
     useCauseError: normalizeError.useCauseError,
