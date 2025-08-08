@@ -1,5 +1,14 @@
 // src/types.ts
 
+export type Dictionary = {
+    [key: string]: unknown;
+    [key: symbol]: unknown;
+};
+
+export type ErrorRecord = Dictionary;
+
+export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
+
 export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     /** Error name - optional to reflect real world */
     name?: string;
@@ -10,15 +19,12 @@ export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     /** Arbitrary nested sub-errors */
     errors?: unknown;
     /** Additional unknown metadata */
-    [key: string | symbol]: unknown;
+    [key: string]: unknown;
+    [key: symbol]: unknown;
 };
 
 export type ErrorShapeWithErrorsArray = WithRequiredType<ErrorShape, 'errors', ErrorShape[]>;
 export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', Dictionary>;
-
-export type Dictionary = Record<string | symbol, unknown>;
-export type ErrorRecord = Dictionary;
-export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
 /* Helper Types */
 /**
@@ -34,17 +40,29 @@ type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
 
 /* Basic Type Guards */
 export const isString = (input: unknown): input is string => typeof input === 'string';
+
 export const isArray = Array.isArray as (input: unknown) => input is unknown[];
+
 export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
+
 export const isSymbol = (input: unknown): input is symbol => typeof input === 'symbol';
-export const isObject = (value: unknown): value is Record<string | number | symbol, unknown> | object => typeof value === 'object' && value !== null;
+
+/** Narrow object-only values (not functions). */
+export const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
+
+/** Alias for clarity in some places. */
+export const isObjectLike = isObject;
+
+export const isErrorInstance = (v: unknown): v is Error => v instanceof Error;
 
 export const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined | symbol | bigint => {
     return !isObject(value) && typeof value !== 'function';
 };
 
 export const isErrorShaped = (input: unknown): input is ErrorShape => {
-    if (!isObject(input)) return false;
-    const keys = Object.getOwnPropertyNames(input);
-    return keys.includes('name') || keys.includes('message') || keys.includes('cause') || keys.includes('errors') || keys.includes('stack');
+    if (!isObjectLike(input)) return false;
+    if (isErrorInstance(input)) return true; // fast path for real Error
+    const keys = Reflect.ownKeys(input);
+    // Any of the common Error-ish fields present counts as "error-shaped"
+    return keys.some(k => k === 'name' || k === 'message' || k === 'cause' || k === 'errors' || k === 'stack');
 };

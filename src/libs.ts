@@ -4,7 +4,7 @@ import { isErrorShaped, isFunction } from './types';
 export function supportsErrorOptions(): boolean {
     try {
         const e = new Error('', { cause: new Error('x') });
-        return isErrorShaped(e.cause);
+        return isErrorShaped((e as Error).cause);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }
@@ -12,7 +12,7 @@ export function supportsErrorOptions(): boolean {
 
 export function supportsAggregateError(): boolean {
     try {
-        return isFunction(AggregateError);
+        return isFunction((globalThis as { AggregateError?: unknown }).AggregateError);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }
@@ -23,13 +23,13 @@ interface ExtractMetaDataOptions {
 }
 
 export function extractMetaData(obj: object, opts: ExtractMetaDataOptions = {}): (string | symbol)[] {
-    return Reflect.ownKeys(obj).filter(key => {
-        // enumerable filtering
-        const desc = Object.getOwnPropertyDescriptor(obj, key as string | symbol);
-        // noinspection RedundantIfStatementJS
-        if (desc && !desc.enumerable && !opts.includeNonEnumerable) {
-            return false;
-        }
-        return true;
-    });
+    if (!opts.includeNonEnumerable) {
+        const stringKeys = Object.keys(obj);
+        const symbolKeys = Object.getOwnPropertySymbols(obj).filter(s => {
+            const d = Object.getOwnPropertyDescriptor(obj, s);
+            return d?.enumerable === true;
+        });
+        return [...stringKeys, ...symbolKeys];
+    }
+    return Reflect.ownKeys(obj);
 }

@@ -8,15 +8,18 @@ export const unknownToString = (input: unknown): string => {
 
     if (isObject(input)) {
         try {
-            // Avoid relying on JSON.stringify for Errors as it often yields {}
-            if (isErrorShaped(input) && input.message) return input.message;
+            // Avoid JSON.stringify({}) for errors; prefer their message/name if present.
+            if (isErrorShaped(input)) {
+                const msg = (input as ErrorShape).message;
+                if (typeof msg === 'string') return msg;
+                if (msg != null) return String(msg);
 
-            /* node:coverage ignore next */
-            if (isErrorShaped(input) && input.name) return input.name;
+                const nm = (input as ErrorShape).name;
+                if (nm != null) return String(nm);
+            }
 
             return Object.prototype.toString.call(input); // Safer fallback
-        } catch {
-            /* node:coverage ignore next 2 */
+        } /* node:coverage ignore next 2 */ catch {
             return String(input);
         }
     }

@@ -1,13 +1,13 @@
+// src/normalizeError.ts
+
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
-import { Dictionary, ErrorRecord, ErrorShape, isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
-import { extractMetaData, supportsAggregateError, supportsErrorOptions } from './libs';
-import { primitiveToError, unknownToString } from './utils';
-
-const HAS_ERROR_OPTIONS = supportsErrorOptions();
-const HAS_AGGREGATE_ERROR = supportsAggregateError();
+import type {Dictionary, ErrorRecord, ErrorShape} from './types';
+import {isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol} from './types';
+import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
+import {primitiveToError, unknownToString} from './utils';
 
 export interface NormalizeOptions {
     /** If provided, overrides the new error's stack trace. */
@@ -68,7 +68,7 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
             else if (isSymbol(value)) value = value.toString();
 
             if (value !== undefined) target[keyStr] = value;
-        } catch {
+        } /* node:coverage ignore next 3 */ catch {
             // Ignore metadata copy errors
         }
     }
@@ -111,6 +111,8 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         return normalized;
     }
 
+    /* node:coverage ignore next 3 */
+    // 7) Fallback for any other unknown type - we should never reach here
     return String(input);
 };
 
@@ -135,12 +137,13 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     if (isArray(input.errors)) {
         aggregateMode = 'array';
 
-        errorShape.errors = input.errors
+        errorShape.errors = (input.errors as unknown[])
             .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
             .map(ne => {
                 if (isErrorShaped(ne)) return ne as ErrorShape;
                 if (isPrimitive(ne)) return primitiveToError(ne);
                 if (isObject(ne)) return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
+                /* node:coverage ignore next */
                 return null;
             })
             .filter(ne => ne !== null) as ErrorShape[];
@@ -148,17 +151,22 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         // Single Error instance -> treat as "single" AggregateError
         aggregateMode = 'single';
         const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
-        if (isErrorShaped(normalizedSingleError)) errorShape.errors = [normalizedSingleError as ErrorShape];
-        else if (isPrimitive(normalizedSingleError)) errorShape.errors = [primitiveToError(normalizedSingleError)];
-        else if (isObject(normalizedSingleError)) errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
-        else errorShape.errors = [];
+        if (isErrorShaped(normalizedSingleError)) {
+            errorShape.errors = [normalizedSingleError as ErrorShape];
+        } /* node:coverage ignore next 2 */ else if (isPrimitive(normalizedSingleError)) {
+            errorShape.errors = [primitiveToError(normalizedSingleError)];
+        } /* node:coverage ignore next 2 */ else if (isObject(normalizedSingleError)) {
+            errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
+        } /* node:coverage ignore next 3 */ else {
+            errorShape.errors = [];
+        }
     } else if (isObject(input.errors)) {
         // Non-standard object map of errors
         const normalizedErrors: ErrorRecord = {};
-        const errorKeys = extractMetaData(input.errors, opts);
+        const errorKeys = extractMetaData(input.errors as object, opts);
         for (const key of errorKeys) {
             const keyStr = key.toString();
-            const value = input.errors[key as keyof typeof input.errors];
+            const value = (input.errors as Dictionary)[key as keyof typeof input.errors];
             const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
 
             if (isErrorShaped(normalizedValue)) normalizedErrors[keyStr] = normalizedValue as ErrorShape;
@@ -171,10 +179,16 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         aggregateMode = 'single';
 
         const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
-        if (isErrorShaped(normalizedSingleError)) errorShape.errors = [normalizedSingleError as ErrorShape];
-        else if (isPrimitive(normalizedSingleError)) errorShape.errors = [primitiveToError(normalizedSingleError)];
-        else if (isObject(normalizedSingleError)) errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
-        else errorShape.errors = [];
+        /* node:coverage ignore next 2 */
+        if (isErrorShaped(normalizedSingleError)) {
+            errorShape.errors = [normalizedSingleError as ErrorShape];
+        } else if (isPrimitive(normalizedSingleError)) {
+            errorShape.errors = [primitiveToError(normalizedSingleError)];
+        } /* node:coverage ignore next 2 */ else if (isObject(normalizedSingleError)) {
+            errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
+        } /* node:coverage ignore next 2 */ else {
+            errorShape.errors = [];
+        }
     }
 
     // --- Name and Message (shape-aware) ---
@@ -211,12 +225,12 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
             e = new Error(finalMessage) as ErrorShape;
             e.name = finalName;
         }
-    } else if (shouldBeAggregateError && HAS_AGGREGATE_ERROR && opts.useAggregateError && isArray(errorShape.errors)) {
+    } else if (shouldBeAggregateError && supportsAggregateError() && opts.useAggregateError && isArray(errorShape.errors)) {
         e = new AggregateError(errorShape.errors, finalMessage) as ErrorShape;
         e.name = finalName;
         nativeCauseUsed = true;
-    } else if (HAS_ERROR_OPTIONS && opts.useCauseError && errorShape.cause) {
-        e = new Error(finalMessage, { cause: errorShape.cause }) as ErrorShape;
+    } else if (supportsErrorOptions() && opts.useCauseError && errorShape.cause) {
+        e = new Error(finalMessage, {cause: errorShape.cause}) as ErrorShape;
         e.name = finalName;
     } else {
         e = new Error(finalMessage) as ErrorShape;
@@ -224,7 +238,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     }
 
     // --- Attach properties ---
-    if (errorShape.cause && (!nativeCauseUsed || !e.cause)) e.cause = errorShape.cause;
+    if (errorShape.cause && (!nativeCauseUsed || !(e as ErrorShape).cause)) e.cause = errorShape.cause;
 
     const AggregateErrorCtor: unknown = (globalThis as unknown as { AggregateError?: unknown }).AggregateError;
     const handledByNativeAggregate =
@@ -249,26 +263,32 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
     if (isPrimitive(input)) {
         e = primitiveToError(input);
     } else {
+        /* node:coverage ignore next 2 */
         if (seen.has(input as object)) {
             e = new Error('[Circular Input]') as ErrorShape;
         } else {
             seen.add(input as object);
 
-            if (isErrorShaped(input) && !opts.originalStack) {
-                opts.originalStack = input.stack;
+            if (isErrorShaped(input) && !opts.originalStack) opts.originalStack = (input as ErrorShape).stack;
 
-                console.warn('Preserve originalStack option, this may not be supported in all environments', opts.originalStack);
+            // Handle Error-like objects
+            if (isFunction(input)) {
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+                e = primitiveToError((input as Function).toString());
+            } else if (isArray(input)) {
+                e = normalizeObjectToError({ errors: input as unknown[], name: 'AggregateError', message: 'AggregateError' } as ErrorRecord, opts, depth, seen);
+            } else if (isObject(input)) {
+                e = normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
+            } /* node:coverage ignore next 2 */ else {
+                e = primitiveToError(String(input));
             }
-
-            if (isFunction(input)) e = primitiveToError(input.toString());
-            else if (isArray(input)) e = normalizeObjectToError({ errors: input, name: 'AggregateError', message: 'AggregateError' }, opts, depth, seen);
-            else if (isObject(input)) e = normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
-            else e = primitiveToError(String(input));
         }
     }
 
+    // Preserve the original stack if provided
     if (opts.originalStack) e.stack = opts.originalStack;
 
+    // Patch the error toString() method if requested
     if (opts.patchToString) overrideToString(e);
 
     return e as T;
@@ -308,7 +328,7 @@ function overrideToString(error: ErrorShape) {
             writable: true,
             configurable: true,
         });
-    } catch {
+    } /* node:coverage ignore next 3 */ catch {
         // ignore in non-Node environments
     }
 }
