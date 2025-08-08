@@ -4,6 +4,6 @@
     "trailingComma": "es5",
     "semi": true,
     "arrowParens": "avoid",
-    "bracketSpacing": false,
+    "bracketSpacing": true,
     "tabWidth": 4
 }

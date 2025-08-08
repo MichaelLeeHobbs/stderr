@@ -1,13 +1,6 @@
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-nocheck
-import {normalizeError} from '../src/normalizeError';
-import {
-    Dictionary,
-    ErrorRecord,
-    ErrorShape,
-    ErrorShapeWithErrorsArray,
-    ErrorShapeWithErrorsObject,
-} from '../src/types';
+// test/normalizeError.test.ts
+import { normalizeError } from '../src';
+import { Dictionary, ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
 
 let nodeInspect: typeof import('util').inspect | undefined;
 try {
@@ -50,6 +43,7 @@ describe('normalizeError', () => {
             function testFn() {
                 return 123;
             }
+
             const err = normalizeError(testFn);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe(testFn.toString());
@@ -59,7 +53,6 @@ describe('normalizeError', () => {
         it('converts an array input into an AggregateError', () => {
             const input = ['a', new Error('b')];
             const err = normalizeError<ErrorShapeWithErrorsArray>(input);
-            // @ts-expect-error: AggregateError might not exist
             const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
             expect(err).toBeInstanceOf(expectedInstance);
             expect(err.name).toBe('AggregateError');
@@ -85,9 +78,7 @@ describe('normalizeError', () => {
                 [new Float32Array(), '', 'Error'],
                 [new Float64Array(), '', 'Error'],
                 [new ArrayBuffer(8), '', 'Error'],
-                // @ts-expect-error: Blob and File might not be standard types in all envs
-                [typeof Blob !== 'undefined' ? new Blob() : {}, '', 'Error'],
-                // @ts-expect-error: Blob and File might not be standard types in all envs
+                [typeof Blob !== 'undefined' ? new Blob([]) : {}, '', 'Error'],
                 [typeof File !== 'undefined' ? new File([], 'file.txt') : {}, '', 'file.txt'],
             ];
             for (const [input, expectedMessage, expectedName] of cases) {
@@ -105,16 +96,16 @@ describe('normalizeError', () => {
     // =========================================================================
     describe('Object Input Handling', () => {
         it('converts a plain object into an Error, preserving message', () => {
-            const obj = {message: 'oops', foo: 'bar'};
+            const obj = { message: 'oops', foo: 'bar' };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
             expect(err.name).toBe('Error');
-            expect((err as ErrorShape & {foo: string}).foo).toBe('bar');
+            expect((err as ErrorShape & { foo: string }).foo).toBe('bar');
         });
 
         it('uses object name property if provided', () => {
-            const obj = {name: 'CustomError', message: 'oops'};
+            const obj = { name: 'CustomError', message: 'oops' };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
@@ -122,25 +113,25 @@ describe('normalizeError', () => {
         });
 
         it('defaults name to "Error" if object name is empty or not a string', () => {
-            const obj1 = {name: '', message: 'oops'};
+            const obj1 = { name: '', message: 'oops' };
             const err1 = normalizeError(obj1);
             expect(err1.name).toBe('Error');
 
-            const obj2 = {name: null, message: 'oops'};
+            const obj2 = { name: null, message: 'oops' };
             const err2 = normalizeError(obj2);
             expect(err2.name).toBe('Error');
         });
 
         it('defaults message to empty string if object message is missing or not usable', () => {
-            const obj1 = {name: 'SomeError'};
+            const obj1 = { name: 'SomeError' };
             const err1 = normalizeError(obj1);
             expect(err1.message).toBe('');
 
-            const obj2 = {name: 'SomeError', message: null};
+            const obj2 = { name: 'SomeError', message: null };
             const err2 = normalizeError(obj2);
             expect(err2.message).toBe('');
 
-            const obj3 = {name: 'SomeError', message: undefined};
+            const obj3 = { name: 'SomeError', message: undefined };
             const err3 = normalizeError(obj3);
             expect(err3.message).toBe('');
         });
@@ -153,12 +144,12 @@ describe('normalizeError', () => {
         });
 
         it('normalizes nested object properties', () => {
-            const obj = {message: 'oops', foo: {bar: 'baz'}};
+            const obj = { message: 'oops', foo: { bar: 'baz' } };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
-            expect((err as any).foo).toBeInstanceOf(Object);
-            expect((err as any).foo.bar).toBe('baz');
+            expect((err as { foo: object }).foo).toBeInstanceOf(Object);
+            expect((err as { foo: { bar: string } }).foo.bar).toBe('baz');
         });
     });
 
@@ -214,19 +205,19 @@ describe('normalizeError', () => {
         });
 
         it('overrides stack trace with originalStack option (string input)', () => {
-            const err = normalizeError('oops', {originalStack: 'CUSTOM_STACK'});
+            const err = normalizeError('oops', { originalStack: 'CUSTOM_STACK' });
             expect(err.stack).toBe('CUSTOM_STACK');
         });
 
         it('overrides stack trace with originalStack option (object input)', () => {
-            const obj = {message: 'oops'};
-            const err = normalizeError(obj, {originalStack: 'CUSTOM_STACK'});
+            const obj = { message: 'oops' };
+            const err = normalizeError(obj, { originalStack: 'CUSTOM_STACK' });
             expect(err.stack).toBe('CUSTOM_STACK');
         });
 
         it('overrides stack trace with originalStack option (Error input)', () => {
             const original: Error = new Error('initial');
-            const result = normalizeError(original, {originalStack: 'CUSTOM_STACK'});
+            const result = normalizeError(original, { originalStack: 'CUSTOM_STACK' });
             expect(result.stack).toBe('CUSTOM_STACK');
         });
 
@@ -237,12 +228,13 @@ describe('normalizeError', () => {
                     throw new Error('oops'); // Force constructor failure
                 }
             }
+
             (globalThis as Dictionary).MyError = MyError;
             const input = new Error('original stack preservation');
             input.name = 'MyError';
             const originalStack = input.stack;
 
-            const err = normalizeError(input, {enableSubclassing: true});
+            const err = normalizeError(input, { enableSubclassing: true });
 
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
@@ -255,36 +247,36 @@ describe('normalizeError', () => {
     // =========================================================================
     describe('Property Copying & Normalization (Metadata)', () => {
         it('copies standard enumerable properties from object input', () => {
-            const obj = {message: 'oops', code: 'E_CODE', errno: 123};
-            const err = normalizeError<ErrorShape & {code: string; errno: number}>(obj);
+            const obj = { message: 'oops', code: 'E_CODE', errno: 123 };
+            const err = normalizeError<ErrorShape & { code: string; errno: number }>(obj);
             expect(err.code).toBe('E_CODE');
             expect(err.errno).toBe(123);
         });
 
         it('copies standard enumerable properties from Error input', () => {
-            const original: Error & {code?: string} = new Error('failed');
+            const original: Error & { code?: string } = new Error('failed');
             original.code = 'E_CODE';
-            const err = normalizeError<ErrorShape & {code: string}>(original);
+            const err = normalizeError<ErrorShape & { code: string }>(original);
             expect(err.code).toBe('E_CODE');
         });
 
         it('copies non-enumerable properties when includeNonEnumerable is true', () => {
-            const obj: ErrorRecord = {message: 'm'};
-            Object.defineProperty(obj, 'hidden', {value: 42, enumerable: false});
-            const err = normalizeError<ErrorRecord>(obj, {includeNonEnumerable: true});
+            const obj: ErrorRecord = { message: 'm' };
+            Object.defineProperty(obj, 'hidden', { value: 42, enumerable: false });
+            const err = normalizeError<ErrorRecord>(obj, { includeNonEnumerable: true });
             expect(err.hidden).toBe(42);
         });
 
         it('ignores non-enumerable properties by default', () => {
-            const obj: ErrorRecord = {message: 'm'};
-            Object.defineProperty(obj, 'hidden', {value: 42, enumerable: false});
+            const obj: ErrorRecord = { message: 'm' };
+            Object.defineProperty(obj, 'hidden', { value: 42, enumerable: false });
             const err = normalizeError(obj);
-            expect((err as any).hidden).toBeUndefined();
+            expect((err as { hidden: unknown }).hidden).toBeUndefined();
         });
 
         it('copies symbol-keyed properties', () => {
             const sym = Symbol('foo');
-            const obj: ErrorRecord = {message: 'm'};
+            const obj: ErrorRecord = { message: 'm' };
             obj[sym] = 'bar';
             const err = normalizeError<ErrorRecord>(obj);
             expect(err[sym.toString()]).toBe('bar'); // Symbol keys are stringified
@@ -292,30 +284,30 @@ describe('normalizeError', () => {
 
         it('copies symbol-valued properties', () => {
             const symVal = Symbol('value');
-            const obj = {message: 'm', data: symVal};
+            const obj = { message: 'm', data: symVal };
             const err = normalizeError<ErrorRecord>(obj);
             expect(err.data).toBe(symVal.toString());
         });
 
         it('normalizes nested Error instances within metadata properties', () => {
-            const obj: ErrorRecord = {message: 'm', random: new Error('inner')};
+            const obj: ErrorRecord = { message: 'm', random: new Error('inner') };
             const err = normalizeError(obj);
-            expect((err as any).random).toBeInstanceOf(Error);
-            expect(((err as any).random as Error).message).toBe('inner');
+            expect((err as { random: unknown }).random).toBeInstanceOf(Error);
+            expect(((err as { random: unknown }).random as Error).message).toBe('inner');
         });
 
         it('normalizes nested plain objects within metadata properties', () => {
-            const obj = {message: 'm', data: {nested: true}};
+            const obj = { message: 'm', data: { nested: true } };
             const err = normalizeError(obj);
-            expect(typeof (err as any).data).toBe('object');
-            expect((err as any).data.nested).toBe(true);
+            expect(typeof (err as { data: unknown }).data).toBe('object');
+            expect((err as { data: { nested: boolean } }).data.nested).toBe(true);
         });
 
         it('normalizes nested arrays within metadata properties', () => {
-            const obj = {message: 'm', items: [1, 'two', {three: 3}]};
+            const obj = { message: 'm', items: [1, 'two', { three: 3 }] };
             const err = normalizeError(obj);
-            expect(Array.isArray((err as any).items)).toBe(true);
-            expect((err as any).items).toEqual([1, 'two', {three: 3}]);
+            expect(Array.isArray((err as { items: unknown }).items)).toBe(true);
+            expect((err as { items: unknown }).items).toEqual([1, 'two', { three: 3 }]);
         });
     });
 
@@ -325,7 +317,7 @@ describe('normalizeError', () => {
     describe('Cause Handling', () => {
         it('normalizes Error cause on object input (native default)', () => {
             const cause = new Error('inner');
-            const input = {message: 'outer', cause};
+            const input = { message: 'outer', cause };
             const normalized = normalizeError<ErrorShape>(input); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
@@ -333,7 +325,7 @@ describe('normalizeError', () => {
         });
 
         it('normalizes non-Error cause on object input to Error (native default)', () => {
-            const input = {message: 'outer', cause: 'inner detail'};
+            const input = { message: 'outer', cause: 'inner detail' };
             const normalized = normalizeError<ErrorShape>(input); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner detail');
@@ -343,7 +335,6 @@ describe('normalizeError', () => {
         it('normalizes Error cause on Error instance input (native default)', () => {
             const cause = new Error('inner');
             const err: Error = new Error('outer');
-            // @ts-expect-error: assigning cause to Error instance
             err.cause = cause;
             const normalized = normalizeError<ErrorShape>(err); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
@@ -353,7 +344,6 @@ describe('normalizeError', () => {
 
         it('normalizes non-Error cause on Error instance input to Error (native default)', () => {
             const err: Error = new Error('outer');
-            // @ts-expect-error: assigning cause to Error instance
             err.cause = 'inner detail';
             const normalized = normalizeError<ErrorShape>(err); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
@@ -363,23 +353,23 @@ describe('normalizeError', () => {
 
         it('attaches Error cause manually when useCauseError is false (object input)', () => {
             const cause = new Error('inner');
-            const input = {message: 'outer', cause};
-            const normalized = normalizeError<ErrorShape>(input, {useCauseError: false});
+            const input = { message: 'outer', cause };
+            const normalized = normalizeError<ErrorShape>(input, { useCauseError: false });
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
             expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('attaches normalized non-Error cause manually when useCauseError is false (object input)', () => {
-            const input = {message: 'outer', cause: 'inner detail'};
-            const normalized = normalizeError<ErrorShape>(input, {useCauseError: false});
+            const input = { message: 'outer', cause: 'inner detail' };
+            const normalized = normalizeError<ErrorShape>(input, { useCauseError: false });
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner detail');
             expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('normalizes deeply nested cause chains by default', () => {
-            const nested = {cause: {cause: 'inner'}}; // obj -> obj -> primitive
+            const nested = { cause: { cause: 'inner' } }; // obj -> obj -> primitive
             const err = normalizeError<ErrorShape>(nested);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('Error');
@@ -404,9 +394,8 @@ describe('normalizeError', () => {
     describe('Errors Property & AggregateError Handling', () => {
         // --- Array of errors ---
         it('normalizes errors array on object input into AggregateError (default)', () => {
-            const input = {message: 'agg', errors: ['a', new Error('b'), {c: 1}]};
+            const input = { message: 'agg', errors: ['a', new Error('b'), { c: 1 }] };
             const err = normalizeError<ErrorShapeWithErrorsArray>(input); // useAggregateError: true (default)
-            // @ts-expect-error: AggregateError might not exist
             const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
             expect(err).toBeInstanceOf(expectedInstance);
             expect(err.name).toBe('Error'); // fixme: Received: "undefined"
@@ -418,7 +407,7 @@ describe('normalizeError', () => {
             expect(err.errors[1]).toBeInstanceOf(Error);
             expect(err.errors[1].message).toBe('b');
             expect(err.errors[2]).toBeInstanceOf(Error);
-            expect((err.errors[2] as any).c).toBe(1);
+            expect((err.errors[2] as { c: number }).c).toBe(1);
         });
 
         it('normalizes errors array on Error instance input (attaching manually)', () => {
@@ -438,9 +427,8 @@ describe('normalizeError', () => {
         });
 
         it('uses AggregateError constructor if name is AggregateError and useAggregateError is true', () => {
-            const input = {name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')]};
-            const err = normalizeError<ErrorShapeWithErrorsArray>(input, {useAggregateError: true});
-            // @ts-expect-error: AggregateError might not exist
+            const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
+            const err = normalizeError<ErrorShapeWithErrorsArray>(input, { useAggregateError: true });
             const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
             expect(err).toBeInstanceOf(expectedInstance);
             expect(err.name).toBe('AggregateError');
@@ -450,8 +438,8 @@ describe('normalizeError', () => {
         });
 
         it('attaches errors array manually if useAggregateError is false', () => {
-            const input = {name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')]};
-            const err = normalizeError<ErrorShapeWithErrorsArray>(input, {useAggregateError: false});
+            const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
+            const err = normalizeError<ErrorShapeWithErrorsArray>(input, { useAggregateError: false });
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('multi');
@@ -461,7 +449,7 @@ describe('normalizeError', () => {
 
         // --- Object map of errors ---
         it('normalizes errors object map on object input (non-standard)', () => {
-            const input = {message: 'validation', errors: {fieldA: 'x', fieldB: new Error('y')}};
+            const input = { message: 'validation', errors: { fieldA: 'x', fieldB: new Error('y') } };
             const err = normalizeError<ErrorShapeWithErrorsObject>(input);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('Error'); // fixme: Received: "undefined"
@@ -476,7 +464,7 @@ describe('normalizeError', () => {
         it('normalizes errors object map on Error instance input (non-standard)', () => {
             const input: Error = new Error('Error with errors object');
             // @ts-expect-error: assigning errors property to Error instance
-            input.errors = {a: 'x', b: new Error('y')};
+            input.errors = { a: 'x', b: new Error('y') };
             const err = normalizeError<ErrorShapeWithErrorsObject>(input);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('Error');
@@ -490,9 +478,8 @@ describe('normalizeError', () => {
 
         // --- Single primitive/object as errors ---
         it('normalizes single primitive errors property to AggregateError with one item', () => {
-            const input = {message: 'single', errors: 42};
+            const input = { message: 'single', errors: 42 };
             const err = normalizeError<ErrorShapeWithErrorsArray>(input);
-            // @ts-expect-error: AggregateError might not exist
             const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
             expect(err).toBeInstanceOf(expectedInstance);
             expect(err.name).toBe('AggregateError'); // fixme: Received: "undefined"
@@ -504,9 +491,9 @@ describe('normalizeError', () => {
         });
 
         it('normalizes single Error errors property to AggregateError with one item', () => {
-            const input = {message: 'single', errors: new Error('inner')};
+            const input = { message: 'single', errors: new Error('inner') };
             const err = normalizeError<ErrorShapeWithErrorsArray>(input);
-            expect(err.name).toBe('AggregateError'); // fixme: Received: "Error"
+            expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('AggregateError');
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors.length).toBe(1);
@@ -516,7 +503,7 @@ describe('normalizeError', () => {
 
         // --- Edge cases ---
         it('handles null/undefined errors property gracefully', () => {
-            const input = {name: 'AggregateError', message: 'multi', errors: null};
+            const input = { name: 'AggregateError', message: 'multi', errors: null };
             const err = normalizeError<ErrorShape>(input);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('AggregateError');
@@ -541,8 +528,8 @@ describe('normalizeError', () => {
     // =========================================================================
     describe('Recursion & Depth Limiting', () => {
         it('stops recursion at maxDepth for cause', () => {
-            const nested = {cause: {cause: {message: 'deep'}}}; // Depth 0 -> 1 -> 2
-            const err = normalizeError<ErrorShape>(nested, {maxDepth: 1});
+            const nested = { cause: { cause: { message: 'deep' } } }; // Depth 0 -> 1 -> 2
+            const err = normalizeError<ErrorShape>(nested, { maxDepth: 1 });
 
             expect(err).toBeInstanceOf(Error);
             const c1 = err.cause as ErrorShape;
@@ -553,8 +540,8 @@ describe('normalizeError', () => {
         });
 
         it('stops recursion at maxDepth for errors array', () => {
-            const nested = {errors: [{cause: 'deep'}]}; // Depth 0 -> errors[0] (1) -> cause (2)
-            const err = normalizeError<ErrorShapeWithErrorsArray>(nested, {maxDepth: 1});
+            const nested = { errors: [{ cause: 'deep' }] }; // Depth 0 -> errors[0] (1) -> cause (2)
+            const err = normalizeError<ErrorShapeWithErrorsArray>(nested, { maxDepth: 1 });
 
             expect(Array.isArray(err.errors)).toBe(true);
             const e1 = err.errors[0] as ErrorShape;
@@ -564,8 +551,8 @@ describe('normalizeError', () => {
         });
 
         it('stops recursion at maxDepth for errors object map', () => {
-            const nested = {errors: {field: {cause: 'deep'}}}; // Depth 0 -> errors.field (1) -> cause (2)
-            const err = normalizeError<ErrorShapeWithErrorsObject>(nested, {maxDepth: 2});
+            const nested = { errors: { field: { cause: 'deep' } } }; // Depth 0 -> errors.field (1) -> cause (2)
+            const err = normalizeError<ErrorShapeWithErrorsObject>(nested, { maxDepth: 2 });
 
             expect(typeof err.errors).toBe('object');
             const e1 = err.errors.field as ErrorShape; // errors.field at depth 1
@@ -579,27 +566,34 @@ describe('normalizeError', () => {
         });
 
         it('stops recursion at maxDepth for metadata properties', () => {
-            const nested = {data: {level1: {level2: 'deep'}}}; // Depth 0 -> data (1) -> level1 (2) -> level2 (3)
-            const err = normalizeError<ErrorShape & {data: any}>(nested, {maxDepth: 3});
+            interface NestedData {
+                data?: {
+                    level1?: {
+                        level2?: string;
+                    };
+                };
+            }
+
+            const nested = { data: { level1: { level2: 'deep' } } }; // Depth 0 -> data (1) -> level1 (2) -> level2 (3)
+            const err = normalizeError<ErrorShape & NestedData>(nested, { maxDepth: 3 });
 
             expect(err.data).toBeDefined();
-            expect(err.data.level1).toBeDefined();
+            expect(err.data?.level1).toBeDefined();
             // leaf is a primitive at the depth boundary; primitives are preserved
-            expect(err.data.level1.level2).toBe('deep');
+            expect(err.data?.level1?.level2).toBe('deep');
         });
 
         it('uses default maxDepth (e.g., 8) for deep chains', () => {
-            let deep = {message: 'level 7'};
+            let deep: { message: string; cause?: unknown } = { message: 'level 7' };
             for (let i = 6; i >= 0; i--) {
-                deep = {cause: deep, message: `level ${i}`};
+                deep = { cause: deep, message: `level ${i}` };
             }
-            const err = normalizeError<ErrorShape>(deep); // Default maxDepth
-
-            let current: ErrorShape | undefined = err;
+            // Default maxDepth
+            let current: ErrorShape | undefined = normalizeError<ErrorShape>(deep);
             for (let i = 0; i <= 7; i++) {
                 expect(current).toBeInstanceOf(Error);
                 expect(current?.message).toBe(`level ${i}`);
-                current = current?.cause;
+                current = current?.cause as ErrorShape | undefined;
             }
             // Depth limit not yet reached; deepest has no cause
             expect(current).toBeUndefined();
@@ -612,7 +606,6 @@ describe('normalizeError', () => {
     describe('Circular Reference Detection', () => {
         it('detects circular cause in Error input', () => {
             const e: Error = new Error('outer');
-            // @ts-expect-error: cause is added dynamically
             e.cause = e; // Direct circular reference
             const err = normalizeError<ErrorShape>(e);
             expect(err.cause).toBeInstanceOf(Error);
@@ -620,7 +613,7 @@ describe('normalizeError', () => {
         });
 
         it('detects circular cause in object input', () => {
-            const obj: any = {message: 'outer'};
+            const obj: { message: string; cause?: string | unknown } = { message: 'outer' };
             obj.cause = obj; // Direct circular reference
             const err = normalizeError(obj);
             expect(err.cause).toBeInstanceOf(Error);
@@ -628,16 +621,15 @@ describe('normalizeError', () => {
         });
 
         it('detects circular reference in metadata property', () => {
-            const obj: any = {foo: 'bar'};
+            const obj: { foo: string; self?: string | unknown } = { foo: 'bar' };
             obj.self = obj; // Circular reference in metadata
-            const err = normalizeError<ErrorShape & {self: string}>(obj);
+            const err = normalizeError<ErrorShape & { self: string }>(obj);
             expect(err.self).toBe('<Circular>');
         });
 
         it('detects indirect circular cause reference', () => {
-            const err1 = {message: 'err1'} as ErrorRecord;
-            const err2 = {message: 'err2', cause: err1} as ErrorRecord;
-            err1.cause = err2;
+            const err1 = { message: 'err1' } as ErrorRecord;
+            err1.cause = { message: 'err2', cause: err1 } as ErrorRecord;
 
             const normalized = normalizeError<ErrorShape>(err1);
 
@@ -649,7 +641,7 @@ describe('normalizeError', () => {
 
         it('detects circular reference in errors array', () => {
             const errors: unknown[] = ['a'];
-            const input = {name: 'AggregateError', errors: errors};
+            const input = { name: 'AggregateError', errors: errors };
             errors.push(input); // Add circular reference
 
             const err = normalizeError<ErrorShapeWithErrorsArray>(input);
@@ -663,17 +655,17 @@ describe('normalizeError', () => {
         });
 
         it('detects circular reference in errors object map', () => {
-            const errors: ErrorRecord = {a: 'x'};
-            const input = {message: 'map', errors: errors};
+            const errors: ErrorRecord = { a: 'x' };
+            const input = { message: 'map', errors: errors };
             errors.b = input; // Add circular reference
 
             const err = normalizeError<ErrorShapeWithErrorsObject>(input);
 
             expect(typeof err.errors).toBe('object');
             expect(err.errors.a).toBeInstanceOf(Error);
-            expect(err.errors.a.message).toBe('x');
+            expect((err.errors.a as ErrorShape).message).toBe('x');
             expect(err.errors.b).toBeInstanceOf(Error);
-            expect(err.errors.b.message).toBe('<Circular>');
+            expect((err.errors.b as ErrorShape).message).toBe('<Circular>');
         });
     });
 
@@ -687,6 +679,7 @@ describe('normalizeError', () => {
                 this.name = 'MySubError';
             }
         }
+
         class FailingSubError extends Error {
             constructor(message?: string) {
                 super(message);
@@ -694,25 +687,27 @@ describe('normalizeError', () => {
                 throw new Error('Constructor failed');
             }
         }
+
         class NotAnError {
             name = 'NotAnError';
             message = 'I look like an error';
         }
+
         (globalThis as Dictionary).MySubError = MySubError;
         (globalThis as Dictionary).FailingSubError = FailingSubError;
         (globalThis as Dictionary).NotAnError = NotAnError;
 
         it('honors subclassing when enabled and constructor exists', () => {
-            const input = {name: 'MySubError', message: 'hey'};
-            const err = normalizeError(input, {enableSubclassing: true});
+            const input = { name: 'MySubError', message: 'hey' };
+            const err = normalizeError(input, { enableSubclassing: true });
             expect(err).toBeInstanceOf(MySubError);
             expect(err.name).toBe('MySubError');
             expect(err.message).toBe('hey');
         });
 
         it('falls back to standard Error if subclassing is disabled', () => {
-            const input = {name: 'MySubError', message: 'hey'};
-            const err = normalizeError(input, {enableSubclassing: false});
+            const input = { name: 'MySubError', message: 'hey' };
+            const err = normalizeError(input, { enableSubclassing: false });
             expect(err).toBeInstanceOf(Error);
             expect(err).not.toBeInstanceOf(MySubError);
             expect(err.name).toBe('MySubError');
@@ -720,25 +715,25 @@ describe('normalizeError', () => {
         });
 
         it('falls back to standard Error if constructor does not exist on globalThis', () => {
-            const input = {name: 'NonExistentError', message: 'hey'};
-            const err = normalizeError(input, {enableSubclassing: true});
+            const input = { name: 'NonExistentError', message: 'hey' };
+            const err = normalizeError(input, { enableSubclassing: true });
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('NonExistentError');
             expect(err.message).toBe('hey');
         });
 
         it('falls back to standard Error if global property is not a valid Error subclass', () => {
-            const input = {name: 'NotAnError', message: 'hey'};
-            const err = normalizeError(input, {enableSubclassing: true});
+            const input = { name: 'NotAnError', message: 'hey' };
+            const err = normalizeError(input, { enableSubclassing: true });
             expect(err).toBeInstanceOf(Error);
-            expect(err).not.toBeInstanceOf(NotAnError as any);
+            expect(err).not.toBeInstanceOf(NotAnError as unknown);
             expect(err.name).toBe('NotAnError');
             expect(err.message).toBe('hey');
         });
 
         it('falls back to standard Error if subclass constructor throws', () => {
-            const input = {name: 'FailingSubError', message: 'hey'};
-            const err = normalizeError(input, {enableSubclassing: true});
+            const input = { name: 'FailingSubError', message: 'hey' };
+            const err = normalizeError(input, { enableSubclassing: true });
             expect(err).toBeInstanceOf(Error);
             expect(err).not.toBeInstanceOf(FailingSubError);
             expect(err.name).toBe('FailingSubError');
@@ -766,12 +761,12 @@ describe('normalizeError', () => {
         });
 
         it('overrides toString to use util.inspect in Node.js', () => {
-            const err = normalizeError('simple message', {patchToString: true});
+            const err = normalizeError('simple message', { patchToString: true });
             const str = err.toString();
 
             if (typeof nodeInspect === 'function') {
                 expect(inspectSpy).toHaveBeenCalledTimes(1);
-                expect(inspectSpy).toHaveBeenCalledWith(err, expect.objectContaining({depth: normalizeError.maxDepth}));
+                expect(inspectSpy).toHaveBeenCalledWith(err, expect.objectContaining({ depth: normalizeError.maxDepth }));
                 expect(str).toContain('Error: simple message');
                 expect(str).toContain('at ');
             } else {
@@ -781,9 +776,8 @@ describe('normalizeError', () => {
 
         it('inspect includes cause when present', () => {
             const original: Error = new Error('outer message');
-            // @ts-expect-error: cause is added dynamically
             original.cause = 'inner detail';
-            const err = normalizeError(original, {patchToString: true});
+            const err = normalizeError(original, { patchToString: true });
             const str = err.toString();
 
             if (typeof nodeInspect === 'function') {
@@ -795,8 +789,8 @@ describe('normalizeError', () => {
         });
 
         it('inspect includes errors array when present', () => {
-            const input = {name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')]};
-            const err = normalizeError(input, {patchToString: true});
+            const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
+            const err = normalizeError(input, { patchToString: true });
             const str = err.toString();
 
             if (typeof nodeInspect === 'function') {
@@ -811,8 +805,8 @@ describe('normalizeError', () => {
         });
 
         it('inspect includes custom properties', () => {
-            const input = {message: 'with meta', code: 'E_META'};
-            const err = normalizeError(input, {patchToString: true});
+            const input = { message: 'with meta', code: 'E_META' };
+            const err = normalizeError(input, { patchToString: true });
             const str = err.toString();
 
             if (typeof nodeInspect === 'function') {
@@ -824,7 +818,7 @@ describe('normalizeError', () => {
         });
 
         it('does not override toString if patchToString is false', () => {
-            const err = normalizeError('simple message', {patchToString: false});
+            const err = normalizeError('simple message', { patchToString: false });
             const originalToString = err.toString;
 
             const str = err.toString();
@@ -840,11 +834,11 @@ describe('normalizeError', () => {
     // =========================================================================
     describe('Simulated Library Errors', () => {
         it('preserves custom properties on FetchError-like object', () => {
-            const fetchErrInput = {name: 'FetchError', message: 'failed fetch', code: 'ECONNREFUSED'};
+            const fetchErrInput = { name: 'FetchError', message: 'failed fetch', code: 'ECONNREFUSED' };
             const fe = normalizeError(fetchErrInput);
             expect(fe.name).toBe('FetchError');
             expect(fe.message).toBe('failed fetch');
-            expect((fe as any).code).toBe('ECONNREFUSED');
+            expect((fe as ErrorShape).code).toBe('ECONNREFUSED');
         });
 
         it('preserves custom properties on FetchError-like Error instance', () => {
@@ -855,14 +849,14 @@ describe('normalizeError', () => {
             const fe = normalizeError(fetchErr);
             expect(fe.name).toBe('FetchError');
             expect(fe.message).toBe('failed fetch');
-            expect((fe as any).code).toBe('ECONNREFUSED');
+            expect((fe as ErrorShape).code).toBe('ECONNREFUSED');
         });
 
         it('normalizes Mongoose-like ValidationError (errors object map)', () => {
             const mongooseErr: unknown = {
                 name: 'ValidationError',
                 message: 'Validation Failed',
-                errors: {field: {message: 'invalid'}},
+                errors: { field: { message: 'invalid' } },
             };
             const me = normalizeError<ErrorShapeWithErrorsObject>(mongooseErr);
             expect(me.name).toBe('ValidationError');
@@ -870,17 +864,16 @@ describe('normalizeError', () => {
             expect(typeof me.errors).toBe('object');
             expect(me.errors.field).toBeInstanceOf(Error);
             expect((me.errors.field as ErrorShape).message).toBe('invalid');
-            expect((me.errors.field as any).message).toBe('invalid');
+            expect((me.errors.field as ErrorShape).message).toBe('invalid');
         });
 
         it('normalizes Sequelize-like ValidationError (errors array)', () => {
             const seqErr: unknown = {
                 name: 'SequelizeValidationError',
                 message: 'validation failed',
-                errors: [{message: 'nope', path: 'fieldA'}],
+                errors: [{ message: 'nope', path: 'fieldA' }],
             };
             const se = normalizeError<ErrorShapeWithErrorsArray>(seqErr);
-            // @ts-expect-error: AggregateError might not exist
             const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
 
             expect(se).toBeInstanceOf(expectedInstance);
@@ -888,7 +881,7 @@ describe('normalizeError', () => {
             expect(se.message).toBe('validation failed');
             expect(Array.isArray(se.errors)).toBe(true);
             expect(se.errors.length).toBe(1);
-            const innerErr = se.errors[0] as ErrorShape & {path: string};
+            const innerErr = se.errors[0] as ErrorShape & { path: string };
             expect(innerErr).toBeInstanceOf(Error);
             expect(innerErr.message).toBe('nope');
             expect(innerErr.path).toBe('fieldA');
@@ -900,7 +893,7 @@ describe('normalizeError', () => {
     // =========================================================================
     describe('Edge Cases', () => {
         it('handles name property being a plain object', () => {
-            const obj = {name: {foo: 'bar'}, message: 'oops'};
+            const obj = { name: { foo: 'bar' }, message: 'oops' };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
@@ -908,7 +901,7 @@ describe('normalizeError', () => {
         });
 
         it('handles message property being a plain object', () => {
-            const obj = {name: 'MyError', message: {foo: 'bar'}};
+            const obj = { name: 'MyError', message: { foo: 'bar' } };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
@@ -916,8 +909,8 @@ describe('normalizeError', () => {
         });
 
         it('handles name property being an ErrorLike object', () => {
-            const nameObj = {name: 'InnerName', message: 'Inner Message'};
-            const obj = {name: nameObj, message: 'oops'};
+            const nameObj = { name: 'InnerName', message: 'Inner Message' };
+            const obj = { name: nameObj, message: 'oops' };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
@@ -926,7 +919,7 @@ describe('normalizeError', () => {
 
         it('handles message property being an ErrorLike object', () => {
             const messageErr = new Error('Inner Message');
-            const obj = {name: 'MyError', message: messageErr};
+            const obj = { name: 'MyError', message: messageErr };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
@@ -935,7 +928,7 @@ describe('normalizeError', () => {
 
         it('handles name property being a function', () => {
             const nameFn = () => 'FuncName';
-            const obj = {name: nameFn, message: 'oops'};
+            const obj = { name: nameFn, message: 'oops' };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
@@ -944,7 +937,7 @@ describe('normalizeError', () => {
 
         it('handles message property being a function', () => {
             const messageFn = () => 'FuncMessage';
-            const obj = {name: 'MyError', message: messageFn};
+            const obj = { name: 'MyError', message: messageFn };
             const err = normalizeError(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');

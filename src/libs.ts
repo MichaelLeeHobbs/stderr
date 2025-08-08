@@ -1,10 +1,10 @@
 // src/libs.ts
-import {isErrorLike, isFunction, isSymbol} from './types';
+import { isErrorShaped, isFunction } from './types';
 
 export function supportsErrorOptions(): boolean {
     try {
-        const e = new Error('', {cause: new Error('x')});
-        return isErrorLike(e.cause);
+        const e = new Error('', { cause: new Error('x') });
+        return isErrorShaped(e.cause);
     } /* node:coverage ignore next 2 */ catch {
         return false;
     }

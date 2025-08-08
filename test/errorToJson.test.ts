@@ -1,5 +1,6 @@
-import {errorToJson} from '../src';
-import {ErrorShape, isArray} from '../src/types';
+// test/errorToJson.test.ts
+import { errorToJson } from '../src';
+import { ErrorShape, isArray } from '../src/types';
 
 describe('errorToJson', () => {
     it('serializes a basic Error', () => {
@@ -38,24 +39,24 @@ describe('errorToJson', () => {
     it('handles nested Error cause that is not an instance of Error or primitive', () => {
         const cause = Symbol('root');
         const err = new Error('fail') as ErrorShape;
-        err.cause = {cause};
+        err.cause = { cause };
         const json = errorToJson(err);
         // @ts-expect-error index signature
         expect(json.cause?.cause.toString()).toMatch('Symbol(root)');
 
         const cause2 = [new Error('root'), Symbol('root'), []];
         const err2 = new Error('fail') as ErrorShape;
-        err2.cause = {cause: cause2};
+        err2.cause = { cause: cause2 };
         const json2 = errorToJson(err2);
         // @ts-expect-error index signature
         expect(json2.cause.cause?.[0].message).toStrictEqual('root');
     });
 
     it('handles nested Error cause that cannot be serialized', () => {
-        const cause = {message: 'circular'} as ErrorShape;
+        const cause = { message: 'circular' } as ErrorShape;
         const err = new Error('fail') as ErrorShape;
         err.cause = cause;
-        cause.cause = {cause};
+        cause.cause = { cause };
         const json = errorToJson(err);
         // @ts-expect-error index signature
         expect(json.cause.cause.cause).toBe('[Circular]');
@@ -81,7 +82,7 @@ describe('errorToJson', () => {
         const deep2 = new Error('2') as ErrorShape;
         deep1.cause = deep2;
         deep2.cause = new Error('3') as ErrorShape;
-        const json = errorToJson(deep1, {maxDepth: 1});
+        const json = errorToJson(deep1, { maxDepth: 1 });
         const cause = json.cause as ErrorShape;
         expect(cause.message).toBeUndefined(); // Max depth reached
     });
@@ -96,12 +97,11 @@ describe('errorToJson', () => {
         deep2.cause = deep3;
         deep3.name = '3';
 
-        const json = errorToJson(deep1, {maxDepth: 1});
+        const json = errorToJson(deep1, { maxDepth: 1 });
         expect(json.cause).toBe('[Max depth of 1 reached]');
     });
 
     it('handles AggregateError', () => {
-        // @ts-expect-error AggregateError may not be a supported property depending on the environment
         const err = new AggregateError([new Error('fail')], 'fail') as ErrorShape;
         const json = errorToJson(err);
         expect(json.name).toBe('AggregateError');
@@ -128,7 +128,7 @@ describe('errorToJson', () => {
         const err = new Error('fail') as ErrorShape;
         err.errors = {
             error1: new Error('error1'),
-            error2: {message: 'error2'},
+            error2: { message: 'error2' },
         };
         const json = errorToJson(err);
         expect(json.name).toBe('Error');
@@ -144,15 +144,15 @@ describe('errorToJson', () => {
         err.string = 'string';
         err.number = 123;
         err.boolean = true;
-        err.data = {key: 'value'};
+        err.data = { key: 'value' };
         err.err = new Error('to err is human') as ErrorShape;
         err.errs = [new Error('error1'), 'error2', err]; // last creates a circular reference
         err.circular = err;
         err.unserializable = {};
         // @ts-expect-error unknown type
         err.unserializable.circular = err.unserializable;
-        err.anObject = {key: 'value'};
-        err.anObjectWithSeen = {seen: err.anObject};
+        err.anObject = { key: 'value' };
+        err.anObjectWithSeen = { seen: err.anObject };
         err.fakeCircular = err.anObject;
         err.function = () => 'function';
         const json = errorToJson(err);
