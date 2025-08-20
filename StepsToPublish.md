@@ -1,56 +1,73 @@
 # How to Publish to NPM
 
-Follow these steps to publish your package to [npm](https://www.npmjs.com/):
+Follow these steps to publish `stderr` to [npm](https://www.npmjs.com/):
 
 ## Prerequisites
 
-1. **NPM Account:** Ensure you have an npm account. If not, create one at [npmjs.com](https://www.npmjs.com/).
-2. **Authenticated:** Login to npm from the command line:
-
+1. **NPM Account:** Create an account at [npmjs.com](https://www.npmjs.com/) if you don't have one.
+2. **Authenticate:** Login to npm from the command line:
    ```bash
-   pnpm login
+   npm login
    ```
 
 ## Steps to Publish
 
-### 1. Build/Lint/Test the Project and then Version it:
+### 1. Test Everything Locally
 
 ```bash
-pnpm version:[patch | minor | major]
+# Run tests and check coverage
+pnpm test
+
+# Check the package contents
+pnpm dry-run
 ```
 
-Example:
+### 2. Version the Package
+
+Choose the appropriate version bump:
 
 ```bash
+# For bug fixes (1.0.0 → 1.0.1)
 pnpm version:patch
+
+# For new features (1.0.0 → 1.1.0)
+pnpm version:minor
+
+# For breaking changes (1.0.0 → 2.0.0)
+pnpm version:major
 ```
 
-### 2. Publish the Package:
+This automatically:
+- Runs linting and tests
+- Updates version in package.json
+- Creates a git commit and tag
+- Pushes to GitHub with tags
+
+### 3. Publish to NPM
 
 ```bash
-pnpm publish
+npm publish
 ```
 
-Use the `--access public` flag if it’s the first time publishing a scoped package:
-
+For first-time publishing:
 ```bash
-pnpm publish --access public
+npm publish --access public
 ```
 
-### 3. Verify the Publish:
+This automatically:
+- Cleans and rebuilds the dist folder
+- Runs all tests
+- Publishes to npm
+- Shows the published package info
 
-After the publish command, the post-publish script will run, `pnpm view normalize-error"`, which checks the npm registry for the package.
+## Post-Publish Verification
 
-## Post-Publish Checklist
+The package info will automatically display after publishing. You can also verify at:
+- https://www.npmjs.com/package/stderr
+- https://github.com/MichaelLeeHobbs/stderr/releases
 
-- Verify that the version was updated in `package.json`.
+## Notes
 
-
-- Push the changes and tags:
-  ```bash
-  git add .
-  git commit -m "Release version x.y.z"
-  git push origin main --tags
-  ```
-
-
+- The `prepublishOnly` script ensures the package is always built, tested, and linted before publishing
+- The `postversion` script automatically pushes changes and tags to GitHub
+- Use `pnpm dry-run` anytime to preview what will be published

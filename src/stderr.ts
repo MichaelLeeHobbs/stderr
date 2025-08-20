@@ -1,13 +1,13 @@
-// src/normalizeError.ts
+// src/stderr.ts
 
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
-import type {Dictionary, ErrorRecord, ErrorShape} from './types';
-import {isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol} from './types';
-import {extractMetaData, supportsAggregateError, supportsErrorOptions} from './libs';
-import {primitiveToError, unknownToString} from './utils';
+import type { Dictionary, ErrorRecord, ErrorShape } from './types';
+import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
+import { extractMetaData, supportsAggregateError, supportsErrorOptions } from './libs';
+import { primitiveToError, unknownToString } from './utils';
 
 export interface NormalizeOptions {
     /** If provided, overrides the new error's stack trace. */
@@ -36,7 +36,7 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
     patchToString: boolean;
 }
 
-interface NormalizeErrorFn {
+interface StderrFn {
     <T = ErrorShape>(input: unknown, options?: NormalizeOptions, depth?: number): T;
 
     maxDepth: number;
@@ -157,7 +157,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
             errorShape.errors = [primitiveToError(normalizedSingleError)];
         } /* node:coverage ignore next 2 */ else if (isObject(normalizedSingleError)) {
             errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
-        } /* node:coverage ignore next 3 */ else {
+        } /* node:coverage ignore next 2 */ else {
             errorShape.errors = [];
         }
     } else if (isObject(input.errors)) {
@@ -177,7 +177,6 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     } else if (input.errors !== undefined && input.errors !== null) {
         // Single non-array/non-object -> AggregateError with one item
         aggregateMode = 'single';
-
         const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
         /* node:coverage ignore next 2 */
         if (isErrorShaped(normalizedSingleError)) {
@@ -253,7 +252,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     return normalizeMetaData(e, input, opts, depth, seen);
 };
 
-export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
+export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
     const seen = new WeakSet<object>();
     const opts: NormalizeOptionsInternal = { ...defaultOptions(), ...options };
 
@@ -294,22 +293,22 @@ export const normalizeError: NormalizeErrorFn = <T = ErrorShape>(input: unknown,
     return e as T;
 };
 
-// Default options for normalizeError
-normalizeError.maxDepth = 8;
-normalizeError.includeNonEnumerable = false;
-normalizeError.enableSubclassing = false;
-normalizeError.useAggregateError = true;
-normalizeError.useCauseError = true;
-normalizeError.patchToString = false;
+// Default options for stderr
+stderr.maxDepth = 8;
+stderr.includeNonEnumerable = false;
+stderr.enableSubclassing = false;
+stderr.useAggregateError = true;
+stderr.useCauseError = true;
+stderr.patchToString = false;
 
 const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     originalStack: undefined,
-    maxDepth: normalizeError.maxDepth,
-    includeNonEnumerable: normalizeError.includeNonEnumerable,
-    enableSubclassing: normalizeError.enableSubclassing,
-    useAggregateError: normalizeError.useAggregateError,
-    useCauseError: normalizeError.useCauseError,
-    patchToString: normalizeError.patchToString,
+    maxDepth: stderr.maxDepth,
+    includeNonEnumerable: stderr.includeNonEnumerable,
+    enableSubclassing: stderr.enableSubclassing,
+    useAggregateError: stderr.useAggregateError,
+    useCauseError: stderr.useCauseError,
+    patchToString: stderr.patchToString,
 });
 
 function overrideToString(error: ErrorShape) {
@@ -319,7 +318,7 @@ function overrideToString(error: ErrorShape) {
         Object.defineProperty(error, 'toString', {
             value(): string {
                 return util.inspect(this, {
-                    depth: normalizeError.maxDepth,
+                    depth: stderr.maxDepth,
                     compact: false,
                     breakLength: Infinity,
                     showHidden: true, // include non-enumerable like [cause], [errors]

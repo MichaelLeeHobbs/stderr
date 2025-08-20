@@ -6,15 +6,18 @@ export const unknownToString = (input: unknown): string => {
 
     if (isPrimitive(input)) return String(input);
 
+    // Handle functions explicitly before error-shaped check
+    // (functions have a 'name' property which could confuse error detection)
+    if (typeof input === 'function') return Object.prototype.toString.call(input);
+
     if (isObject(input)) {
         try {
             // Avoid JSON.stringify({}) for errors; prefer their message/name if present.
             if (isErrorShaped(input)) {
-                const msg = (input as ErrorShape).message;
-                if (typeof msg === 'string') return msg;
+                const msg = input.message;
                 if (msg != null) return String(msg);
 
-                const nm = (input as ErrorShape).name;
+                const nm = input.name;
                 if (nm != null) return String(nm);
             }
 
@@ -23,6 +26,8 @@ export const unknownToString = (input: unknown): string => {
             return String(input);
         }
     }
+    /* node:coverage ignore next 3 */
+    // Fallback for any other type, that somehow isn't caught above
     return String(input);
 };
 

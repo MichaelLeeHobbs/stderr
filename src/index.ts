@@ -1,3 +1,7 @@
 // src/index.ts
-export { normalizeError } from './normalizeError';
+export { stderr } from './stderr';
 export { errorToJson } from './errorToJson';
+export { tryCatch } from './tryCatch';
+export type { NormalizeOptions } from './stderr';
+export type { ErrorToJsonOptions } from './errorToJson';
+export type { ErrorShape, ErrorRecord, Dictionary } from './types';
