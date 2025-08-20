@@ -229,7 +229,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         e.name = finalName;
         nativeCauseUsed = true;
     } else if (supportsErrorOptions() && opts.useCauseError && errorShape.cause) {
-        e = new Error(finalMessage, {cause: errorShape.cause}) as ErrorShape;
+        e = new Error(finalMessage, { cause: errorShape.cause }) as ErrorShape;
         e.name = finalName;
     } else {
         e = new Error(finalMessage) as ErrorShape;

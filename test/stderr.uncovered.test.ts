@@ -1,11 +1,6 @@
 // test/stderr.uncovered.test.ts
 import { stderr } from '../src';
-import type {
-    ErrorRecord,
-    ErrorShape,
-    ErrorShapeWithErrorsArray,
-    ErrorShapeWithErrorsObject,
-} from '../src/types';
+import type { ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
 
 describe('stderr (extra coverage for uncovered branches)', () => {
     it('normalizes a symbol cause via normalizeUnknown (stringified, attached as Error)', () => {

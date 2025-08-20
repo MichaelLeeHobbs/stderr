@@ -60,7 +60,7 @@ describe('unknownToString', () => {
     it('should handle functions', () => {
         expect(unknownToString(() => {})).toBe('[object Function]');
         expect(unknownToString(function named() {})).toBe('[object Function]');
-        expect(unknownToString(async function() {})).toBe('[object AsyncFunction]');
+        expect(unknownToString(async function () {})).toBe('[object AsyncFunction]');
         expect(unknownToString(function* generator() {})).toBe('[object GeneratorFunction]');
     });
 

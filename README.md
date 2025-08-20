@@ -57,7 +57,7 @@ someLibrary.doSomething().catch(e => {
 });
 
 // Solution: stderr handles ALL of these
-import { stderr } from 'stderr';
+import { stderr } from 'stderr-lib';
 
 // Configure once at app startup for convenience
 stderr.patchToString = true;  // Enable enhanced toString() globally
@@ -79,7 +79,7 @@ const normalizedError = stderr(weirdError, { patchToString: true });
 The killer feature of `stderr` is the enhanced `toString()` method when using `patchToString: true`:
 
 ```javascript
-import { stderr } from 'stderr';
+import { stderr } from 'stderr-lib';
 
 // Option 1: Configure globally (recommended for most apps)
 stderr.patchToString = true;  // Set once at app initialization
@@ -152,15 +152,15 @@ stderr.includeNonEnumerable = true;  // Include hidden properties
 ## Installation
 
 ```bash
-npm install stderr
+npm install stderr-lib
 ```
 
 ```bash
-yarn add stderr
+yarn add stderr-lib
 ```
 
 ```bash
-pnpm add stderr
+pnpm add stderr-lib
 ```
 
 ## Core Usage
@@ -168,7 +168,7 @@ pnpm add stderr
 ### The Main Pattern - Complete Error Logging
 
 ```javascript
-import { stderr } from 'stderr';
+import { stderr } from 'stderr-lib';
 
 // The pattern you'll use everywhere
 function safeErrorLog(error, logger = console) {
@@ -199,7 +199,7 @@ app.use((err, req, res, next) => {
 ### Basic Error Normalization
 
 ```typescript
-import { stderr } from 'stderr';
+import { stderr } from 'stderr-lib';
 
 // From string
 const err1 = stderr('Something went wrong');
@@ -289,7 +289,7 @@ const normalized = stderr(mongooseError, { patchToString: true });
 ### JSON Serialization
 
 ```typescript
-import { errorToJson } from 'stderr';
+import { errorToJson } from 'stderr-lib';
 
 const err = new Error('Failed');
 err.cause = new Error('Root cause');
@@ -314,7 +314,7 @@ fetch('/api/log', {
 #### Basic Usage with Type Inference
 
 ```typescript
-import { tryCatch } from 'stderr';
+import { tryCatch } from 'stderr-lib';
 
 // TypeScript infers the promise type automatically
 const result = await tryCatch(fetch('/api/data'));

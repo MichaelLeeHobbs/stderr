@@ -1,5 +1,5 @@
 {
-  "name": "stderr",
+  "name": "stderr-lib",
   "version": "1.0.0",
   "description": "Normalize unknown error values to a standard format with cause chain support.",
   "author": "Michael L. Hobbs",
@@ -42,7 +42,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist coverage",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run lint && pnpm run test",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run lint:fix && pnpm run test",
     "version:major": "npm version major",
     "version:minor": "npm version minor",
     "version:patch": "npm version patch",
