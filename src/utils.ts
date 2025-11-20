@@ -1,4 +1,5 @@
 // src/utils.ts
+import { StdError } from './StdError';
 import { ErrorShape, isErrorShaped, isObject, isPrimitive, isString, Primitive } from './types';
 
 export const unknownToString = (input: unknown): string => {
@@ -35,10 +36,10 @@ export const primitiveToError = (input: Primitive): ErrorShape => {
     /* node:coverage ignore next */
     if (!isPrimitive(input)) throw new TypeError('Input must be a primitive value');
 
-    if (input === undefined) return new Error('Unknown error (Undefined)') as ErrorShape;
+    if (input === undefined) return new StdError('Unknown error (Undefined)');
 
-    if (input === null) return new Error('Unknown error (Null)') as ErrorShape;
+    if (input === null) return new StdError('Unknown error (Null)');
 
-    // Use Error constructor for primitives
-    return new Error(String(input)) as ErrorShape;
+    // Use StdError constructor for primitives
+    return new StdError(String(input));
 };

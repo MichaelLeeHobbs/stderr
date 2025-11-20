@@ -90,14 +90,11 @@ describe('StdError Integration', () => {
     describe('Comparison with current stderr', () => {
         it('StdError vs stderr with patchToString', () => {
             // Old way: need to remember patchToString
-            const oldError = stderr(
-                {
-                    message: 'Database error',
-                    code: 'E_DB',
-                    cause: new Error('Connection failed'),
-                },
-                { patchToString: true }
-            );
+            const oldError = stderr({
+                message: 'Database error',
+                code: 'E_DB',
+                cause: new Error('Connection failed'),
+            });
 
             // New way: automatic comprehensive toString
             const newError = new StdError('Database error', {
@@ -116,7 +113,7 @@ describe('StdError Integration', () => {
 
         it('demonstrates the simplification', () => {
             // Old: Multiple steps
-            const oldWay = stderr('Error occurred', { patchToString: true });
+            const oldWay = stderr('Error occurred');
             JSON.stringify(oldWay); // Need custom handling
 
             // New: Built-in

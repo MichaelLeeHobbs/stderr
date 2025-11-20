@@ -1,5 +1,5 @@
 // test/stderr.uncovered.test.ts
-import { stderr } from '../src';
+import { stderr, StdError } from '../src';
 import type { ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
 
 describe('stderr (extra coverage for uncovered branches)', () => {
@@ -31,9 +31,8 @@ describe('stderr (extra coverage for uncovered branches)', () => {
     it('normalizes array input with symbol element (errors array path -> normalizeUnknown symbol branch)', () => {
         const input = ['a', Symbol('z')] as const;
         const err = stderr<ErrorShapeWithErrorsArray>(input as unknown as ErrorRecord);
-        const expectedCtor = typeof AggregateError !== 'undefined' ? AggregateError : Error;
 
-        expect(err).toBeInstanceOf(expectedCtor);
+        expect(err).toBeInstanceOf(StdError);
         expect(Array.isArray(err.errors)).toBe(true);
         expect(err.errors.length).toBe(2);
         expect(err.errors[0]).toBeInstanceOf(Error);
@@ -76,9 +75,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
     it('uses provided name for "single" aggregate (name coerced) and message overridden to "AggregateError"', () => {
         const input = { name: { foo: 'bar' }, errors: 123 };
         const err = stderr<ErrorShapeWithErrorsArray>(input);
-        const expectedCtor = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-
-        expect(err).toBeInstanceOf(expectedCtor);
+        expect(err).toBeInstanceOf(StdError);
         expect(err.name).toBe('[object Object]');
         expect(err.message).toBe('AggregateError');
         expect(Array.isArray(err.errors)).toBe(true);
@@ -90,12 +87,9 @@ describe('stderr (extra coverage for uncovered branches)', () => {
     it('attaches cause manually when AggregateError is constructed (cause becomes enumerable)', () => {
         const input = { errors: ['a', 'b'], cause: 'c' };
         const err = stderr<ErrorShapeWithErrorsArray>(input);
-
-        const expectedCtor = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-        expect(err).toBeInstanceOf(expectedCtor);
-
-        expect(err.cause).toBeInstanceOf(Error);
-        expect((err.cause as Error).message).toBe('c');
+        expect(err).toBeInstanceOf(StdError);
+        expect(err.cause).toBeInstanceOf(StdError);
+        expect((err.cause as StdError).message).toBe('c');
         const desc = Object.getOwnPropertyDescriptor(err, 'cause');
         if (desc) {
             expect(desc.enumerable).toBe(true);

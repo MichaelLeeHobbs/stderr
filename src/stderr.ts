@@ -4,9 +4,10 @@
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
+import { StdError } from './StdError';
 import type { Dictionary, ErrorRecord, ErrorShape } from './types';
 import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
-import { extractMetaData, supportsAggregateError, supportsErrorOptions } from './libs';
+import { extractMetaData } from './libs';
 import { primitiveToError, unknownToString } from './utils';
 
 export interface NormalizeOptions {
@@ -16,35 +17,27 @@ export interface NormalizeOptions {
     maxDepth?: number;
     /** Include non-enumerable properties in metadata copying. */
     includeNonEnumerable?: boolean;
-    /** Attempt to preserve subclasses by using a constructor matching the name. */
-    enableSubclassing?: boolean;
-    /** Use AggregateError if available and applicable. */
+    /** Use AggregateError if available and applicable. (Note: StdError handles this automatically) */
     useAggregateError?: boolean;
-    /** Use CauseError if available and applicable. */
+    /** Use CauseError if available and applicable. (Note: StdError handles this automatically) */
     useCauseError?: boolean;
-    /** Patch the error message to override the default toString() method. */
-    patchToString?: boolean;
 }
 
 interface NormalizeOptionsInternal extends NormalizeOptions {
     originalStack: string | undefined;
     maxDepth: number;
     includeNonEnumerable: boolean;
-    enableSubclassing: boolean;
     useAggregateError: boolean;
     useCauseError: boolean;
-    patchToString: boolean;
 }
 
 interface StderrFn {
-    <T = ErrorShape>(input: unknown, options?: NormalizeOptions, depth?: number): T;
+    <T = StdError>(input: unknown, options?: NormalizeOptions, depth?: number): T;
 
     maxDepth: number;
     includeNonEnumerable: boolean;
-    enableSubclassing: boolean;
     useAggregateError: boolean;
     useCauseError: boolean;
-    patchToString: boolean;
 }
 
 // Forward declarations needed due to circular dependencies between functions
@@ -118,7 +111,7 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
 
 normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
     // Depth check for Error normalization
-    if (depth >= opts.maxDepth) return new Error(`[Max depth of ${depth} reached]`) as ErrorShape;
+    if (depth >= opts.maxDepth) return new StdError(`[Max depth of ${depth} reached]`, { maxDepth: opts.maxDepth });
 
     const errorShape: Partial<ErrorShape> = {};
 
@@ -209,46 +202,27 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     const finalName = computeFinalName();
     const finalMessage = computeFinalMessage();
 
-    // --- Construct the Error instance ---
-    const shouldBeAggregateError = aggregateMode !== 'none';
+    // --- Construct the StdError instance ---
+    // Build options object for StdError constructor
+    const stderrOptions: Dictionary = {
+        name: finalName,
+        maxDepth: opts.maxDepth,
+    };
 
-    let e: ErrorShape;
-    const Ctor = globalThis[finalName as keyof typeof globalThis] as typeof Error | undefined;
-    let nativeCauseUsed = false;
-
-    if (opts.enableSubclassing && isFunction(Ctor) && Ctor.prototype instanceof Error) {
-        try {
-            e = new Ctor(finalMessage) as ErrorShape;
-            e.name = finalName;
-        } catch {
-            e = new Error(finalMessage) as ErrorShape;
-            e.name = finalName;
-        }
-    } else if (shouldBeAggregateError && supportsAggregateError() && opts.useAggregateError && isArray(errorShape.errors)) {
-        e = new AggregateError(errorShape.errors, finalMessage) as ErrorShape;
-        e.name = finalName;
-        nativeCauseUsed = true;
-    } else if (supportsErrorOptions() && opts.useCauseError && errorShape.cause) {
-        e = new Error(finalMessage, { cause: errorShape.cause }) as ErrorShape;
-        e.name = finalName;
-    } else {
-        e = new Error(finalMessage) as ErrorShape;
-        e.name = finalName;
+    // Add cause if present
+    if (errorShape.cause !== undefined && errorShape.cause !== null) {
+        stderrOptions.cause = errorShape.cause;
     }
 
-    // --- Attach properties ---
-    if (errorShape.cause && (!nativeCauseUsed || !(e as ErrorShape).cause)) e.cause = errorShape.cause;
+    // Add errors if present
+    if (errorShape.errors !== undefined && errorShape.errors !== null) {
+        stderrOptions.errors = errorShape.errors;
+    }
 
-    const AggregateErrorCtor: unknown = (globalThis as unknown as { AggregateError?: unknown }).AggregateError;
-    const handledByNativeAggregate =
-        AggregateErrorCtor &&
-        typeof AggregateErrorCtor === 'function' &&
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        e instanceof (AggregateErrorCtor as any) &&
-        isArray(errorShape.errors);
+    // Create the StdError instance
+    const e = new StdError(finalMessage, stderrOptions) as ErrorShape;
 
-    if (errorShape.errors && !handledByNativeAggregate) e.errors = errorShape.errors;
-
+    // Copy all custom metadata properties
     return normalizeMetaData(e, input, opts, depth, seen);
 };
 
@@ -264,7 +238,7 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
     } else {
         /* node:coverage ignore next 2 */
         if (seen.has(input as object)) {
-            e = new Error('[Circular Input]') as ErrorShape;
+            e = new StdError('[Circular Input]');
         } else {
             seen.add(input as object);
 
@@ -287,47 +261,19 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
     // Preserve the original stack if provided
     if (opts.originalStack) e.stack = opts.originalStack;
 
-    // Patch the error toString() method if requested
-    if (opts.patchToString) overrideToString(e);
-
     return e as T;
 };
 
 // Default options for stderr
 stderr.maxDepth = 8;
 stderr.includeNonEnumerable = false;
-stderr.enableSubclassing = false;
 stderr.useAggregateError = true;
 stderr.useCauseError = true;
-stderr.patchToString = false;
 
 const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     originalStack: undefined,
     maxDepth: stderr.maxDepth,
     includeNonEnumerable: stderr.includeNonEnumerable,
-    enableSubclassing: stderr.enableSubclassing,
     useAggregateError: stderr.useAggregateError,
     useCauseError: stderr.useCauseError,
-    patchToString: stderr.patchToString,
 });
-
-function overrideToString(error: ErrorShape) {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const util = require('util');
-        Object.defineProperty(error, 'toString', {
-            value(): string {
-                return util.inspect(this, {
-                    depth: stderr.maxDepth,
-                    compact: false,
-                    breakLength: Infinity,
-                    showHidden: true, // include non-enumerable like [cause], [errors]
-                });
-            },
-            writable: true,
-            configurable: true,
-        });
-    } /* node:coverage ignore next 3 */ catch {
-        // ignore in non-Node environments
-    }
-}

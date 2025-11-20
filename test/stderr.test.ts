@@ -1,15 +1,6 @@
 // test/stderr.test.ts
-import { stderr } from '../src';
+import { stderr, StdError } from '../src';
 import { Dictionary, ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
-
-let nodeInspect: typeof import('util').inspect | undefined;
-try {
-    // only works in Node
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    nodeInspect = require('util').inspect;
-} /* node:coverage ignore next 2 */ catch {
-    nodeInspect = undefined;
-}
 
 describe('stderr', () => {
     // =========================================================================
@@ -53,8 +44,7 @@ describe('stderr', () => {
         it('converts an array input into an AggregateError', () => {
             const input = ['a', new Error('b')];
             const err = stderr<ErrorShapeWithErrorsArray>(input);
-            const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-            expect(err).toBeInstanceOf(expectedInstance);
+            expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('AggregateError');
             expect(Array.isArray(err.errors)).toBe(true);
@@ -101,7 +91,7 @@ describe('stderr', () => {
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
             expect(err.name).toBe('Error');
-            expect((err as ErrorShape & { foo: string }).foo).toBe('bar');
+            expect((err as unknown as ErrorShape & { foo: string }).foo).toBe('bar');
         });
 
         it('uses object name property if provided', () => {
@@ -148,8 +138,8 @@ describe('stderr', () => {
             const err = stderr(obj);
             expect(err).toBeInstanceOf(Error);
             expect(err.message).toBe('oops');
-            expect((err as { foo: object }).foo).toBeInstanceOf(Object);
-            expect((err as { foo: { bar: string } }).foo.bar).toBe('baz');
+            expect((err as unknown as { foo: object }).foo).toBeInstanceOf(Object);
+            expect((err as unknown as { foo: { bar: string } }).foo.bar).toBe('baz');
         });
     });
 
@@ -234,7 +224,7 @@ describe('stderr', () => {
             input.name = 'MyError';
             const originalStack = input.stack;
 
-            const err = stderr(input, { enableSubclassing: true });
+            const err = stderr(input);
 
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
@@ -271,7 +261,7 @@ describe('stderr', () => {
             const obj: ErrorRecord = { message: 'm' };
             Object.defineProperty(obj, 'hidden', { value: 42, enumerable: false });
             const err = stderr(obj);
-            expect((err as { hidden: unknown }).hidden).toBeUndefined();
+            expect((err as unknown as { hidden: unknown }).hidden).toBeUndefined();
         });
 
         it('copies symbol-keyed properties', () => {
@@ -292,22 +282,22 @@ describe('stderr', () => {
         it('normalizes nested Error instances within metadata properties', () => {
             const obj: ErrorRecord = { message: 'm', random: new Error('inner') };
             const err = stderr(obj);
-            expect((err as { random: unknown }).random).toBeInstanceOf(Error);
-            expect(((err as { random: unknown }).random as Error).message).toBe('inner');
+            expect((err as unknown as { random: unknown }).random).toBeInstanceOf(Error);
+            expect(((err as unknown as { random: unknown }).random as Error).message).toBe('inner');
         });
 
         it('normalizes nested plain objects within metadata properties', () => {
             const obj = { message: 'm', data: { nested: true } };
             const err = stderr(obj);
-            expect(typeof (err as { data: unknown }).data).toBe('object');
-            expect((err as { data: { nested: boolean } }).data.nested).toBe(true);
+            expect(typeof (err as unknown as { data: unknown }).data).toBe('object');
+            expect((err as unknown as { data: { nested: boolean } }).data.nested).toBe(true);
         });
 
         it('normalizes nested arrays within metadata properties', () => {
             const obj = { message: 'm', items: [1, 'two', { three: 3 }] };
             const err = stderr(obj);
-            expect(Array.isArray((err as { items: unknown }).items)).toBe(true);
-            expect((err as { items: unknown }).items).toEqual([1, 'two', { three: 3 }]);
+            expect(Array.isArray((err as unknown as { items: unknown }).items)).toBe(true);
+            expect((err as unknown as { items: unknown }).items).toEqual([1, 'two', { three: 3 }]);
         });
     });
 
@@ -390,8 +380,7 @@ describe('stderr', () => {
         it('normalizes errors array on object input into AggregateError (default)', () => {
             const input = { message: 'agg', errors: ['a', new Error('b'), { c: 1 }] };
             const err = stderr<ErrorShapeWithErrorsArray>(input); // useAggregateError: true (default)
-            const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-            expect(err).toBeInstanceOf(expectedInstance);
+            expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('Error'); // fixme: Received: "undefined"
             expect(err.message).toBe('agg');
             expect(Array.isArray(err.errors)).toBe(true);
@@ -423,8 +412,7 @@ describe('stderr', () => {
         it('uses AggregateError constructor if name is AggregateError and useAggregateError is true', () => {
             const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
             const err = stderr<ErrorShapeWithErrorsArray>(input, { useAggregateError: true });
-            const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-            expect(err).toBeInstanceOf(expectedInstance);
+            expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('multi');
             expect(Array.isArray(err.errors)).toBe(true);
@@ -474,8 +462,7 @@ describe('stderr', () => {
         it('normalizes single primitive errors property to AggregateError with one item', () => {
             const input = { message: 'single', errors: 42 };
             const err = stderr<ErrorShapeWithErrorsArray>(input);
-            const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-            expect(err).toBeInstanceOf(expectedInstance);
+            expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('AggregateError'); // fixme: Received: "undefined"
             expect(err.message).toBe('AggregateError'); // Defaults message (as per design)
             expect(Array.isArray(err.errors)).toBe(true);
@@ -664,162 +651,60 @@ describe('stderr', () => {
     });
 
     // =========================================================================
-    // Subclassing Support
+    // Error Name Preservation
     // =========================================================================
-    describe('Subclassing Support', () => {
-        class MySubError extends Error {
-            constructor(message: string) {
-                super(message);
-                this.name = 'MySubError';
-            }
-        }
-
-        class FailingSubError extends Error {
-            constructor(message?: string) {
-                super(message);
-                this.name = 'FailingSubError';
-                throw new Error('Constructor failed');
-            }
-        }
-
-        class NotAnError {
-            name = 'NotAnError';
-            message = 'I look like an error';
-        }
-
-        (globalThis as Dictionary).MySubError = MySubError;
-        (globalThis as Dictionary).FailingSubError = FailingSubError;
-        (globalThis as Dictionary).NotAnError = NotAnError;
-
-        it('honors subclassing when enabled and constructor exists', () => {
-            const input = { name: 'MySubError', message: 'hey' };
-            const err = stderr(input, { enableSubclassing: true });
-            expect(err).toBeInstanceOf(MySubError);
-            expect(err.name).toBe('MySubError');
-            expect(err.message).toBe('hey');
+    describe('Error Name Preservation', () => {
+        it('preserves custom error names', () => {
+            const input = { name: 'CustomError', message: 'custom message' };
+            const err = stderr(input);
+            expect(err).toBeInstanceOf(StdError);
+            expect(err.name).toBe('CustomError');
+            expect(err.message).toBe('custom message');
         });
 
-        it('falls back to standard Error if subclassing is disabled', () => {
-            const input = { name: 'MySubError', message: 'hey' };
-            const err = stderr(input, { enableSubclassing: false });
-            expect(err).toBeInstanceOf(Error);
-            expect(err).not.toBeInstanceOf(MySubError);
-            expect(err.name).toBe('MySubError');
-            expect(err.message).toBe('hey');
-        });
-
-        it('falls back to standard Error if constructor does not exist on globalThis', () => {
-            const input = { name: 'NonExistentError', message: 'hey' };
-            const err = stderr(input, { enableSubclassing: true });
-            expect(err).toBeInstanceOf(Error);
-            expect(err.name).toBe('NonExistentError');
-            expect(err.message).toBe('hey');
-        });
-
-        it('falls back to standard Error if global property is not a valid Error subclass', () => {
-            const input = { name: 'NotAnError', message: 'hey' };
-            const err = stderr(input, { enableSubclassing: true });
-            expect(err).toBeInstanceOf(Error);
-            expect(err).not.toBeInstanceOf(NotAnError as unknown);
-            expect(err.name).toBe('NotAnError');
-            expect(err.message).toBe('hey');
-        });
-
-        it('falls back to standard Error if subclass constructor throws', () => {
-            const input = { name: 'FailingSubError', message: 'hey' };
-            const err = stderr(input, { enableSubclassing: true });
-            expect(err).toBeInstanceOf(Error);
-            expect(err).not.toBeInstanceOf(FailingSubError);
-            expect(err.name).toBe('FailingSubError');
-            expect(err.message).toBe('hey');
+        it('preserves error names from Error instances', () => {
+            const original = new Error('test');
+            original.name = 'MyCustomError';
+            const err = stderr(original);
+            expect(err).toBeInstanceOf(StdError);
+            expect(err.name).toBe('MyCustomError');
         });
     });
 
     // =========================================================================
-    // toString() Override (`patchToString`)
+    // Comprehensive toString() - Built into StdError
     // =========================================================================
-    describe('toString() Override (patchToString: true)', () => {
-        let inspectSpy: jest.SpyInstance | undefined;
-        beforeAll(() => {
-            if (typeof nodeInspect === 'function') {
-                // eslint-disable-next-line @typescript-eslint/no-require-imports
-                const util = require('util');
-                inspectSpy = jest.spyOn(util, 'inspect');
-            }
-        });
-        afterEach(() => {
-            inspectSpy?.mockClear();
-        });
-        afterAll(() => {
-            inspectSpy?.mockRestore();
-        });
-
-        it('overrides toString to use util.inspect in Node.js', () => {
-            const err = stderr('simple message', { patchToString: true });
-            const str = err.toString();
-
-            if (typeof nodeInspect === 'function') {
-                expect(inspectSpy).toHaveBeenCalledTimes(1);
-                expect(inspectSpy).toHaveBeenCalledWith(err, expect.objectContaining({ depth: stderr.maxDepth }));
-                expect(str).toContain('Error: simple message');
-                expect(str).toContain('at ');
-            } else {
-                expect(str).toContain('Error: simple message');
-            }
-        });
-
-        it('inspect includes cause when present', () => {
+    describe('StdError toString() capabilities', () => {
+        it('includes cause in toString', () => {
             const original: Error = new Error('outer message');
             original.cause = 'inner detail';
-            const err = stderr(original, { patchToString: true });
+            const err = stderr(original);
             const str = err.toString();
 
-            if (typeof nodeInspect === 'function') {
-                expect(str).toContain('Error: outer message');
-                expect(str).toMatch(/\[cause]: Error: inner detail/);
-            } else {
-                expect(str).toContain('Error: outer message');
-            }
+            expect(str).toContain('Error: outer message');
+            expect(str).toContain('[cause]');
+            expect(str).toContain('inner detail');
         });
 
-        it('inspect includes errors array when present', () => {
+        it('includes errors array in toString', () => {
             const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
-            const err = stderr(input, { patchToString: true });
+            const err = stderr(input);
             const str = err.toString();
 
-            if (typeof nodeInspect === 'function') {
-                expect(str).toContain('AggregateError: multi');
-                // non-enumerable properties show with brackets when showHidden: true
-                expect(str).toMatch(/\[errors]: \[/);
-                expect(str).toContain('Error: a');
-                expect(str).toContain('Error: b');
-            } else {
-                expect(str).toContain('AggregateError: multi');
-            }
+            expect(str).toContain('AggregateError: multi');
+            expect(str).toContain('[errors]');
+            expect(str).toContain('Error: a');
+            expect(str).toContain('Error: b');
         });
 
-        it('inspect includes custom properties', () => {
-            const input = { message: 'with meta', code: 'E_META' };
-            const err = stderr(input, { patchToString: true });
+        it('includes custom properties in toString', () => {
+            const input = { message: 'with meta', code: 'E_META', customProp: 'value' };
+            const err = stderr(input);
             const str = err.toString();
 
-            if (typeof nodeInspect === 'function') {
-                expect(str).toContain('Error: with meta');
-                expect(str).toContain("code: 'E_META'");
-            } else {
-                expect(str).toContain('Error: with meta');
-            }
-        });
-
-        it('does not override toString if patchToString is false', () => {
-            const err = stderr('simple message', { patchToString: false });
-            const originalToString = err.toString;
-
-            const str = err.toString();
-
-            expect(inspectSpy).not.toHaveBeenCalled();
-            expect(str).toBe('Error: simple message');
-            expect(err.toString).toBe(originalToString);
+            expect(str).toContain('Error: with meta');
+            expect(str).toContain('E_META');
+            expect(str).toContain('customProp');
         });
     });
 
@@ -868,9 +753,7 @@ describe('stderr', () => {
                 errors: [{ message: 'nope', path: 'fieldA' }],
             };
             const se = stderr<ErrorShapeWithErrorsArray>(seqErr);
-            const expectedInstance = typeof AggregateError !== 'undefined' ? AggregateError : Error;
-
-            expect(se).toBeInstanceOf(expectedInstance);
+            expect(se).toBeInstanceOf(StdError);
             expect(se.name).toBe('SequelizeValidationError');
             expect(se.message).toBe('validation failed');
             expect(Array.isArray(se.errors)).toBe(true);

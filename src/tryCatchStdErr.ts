@@ -53,7 +53,7 @@ export function tryCatchStdErr<T>(fn: () => T | Promise<T>): Result<T> | Promise
                     const data = (await value) as Promise<T> as T;
                     return { ok: true as const, data, error: null };
                 } catch (error) {
-                    const finalError = stderr(error, { patchToString: true });
+                    const finalError = stderr(error);
                     return { ok: false as const, data: null, error: finalError };
                 }
             })();
@@ -61,7 +61,7 @@ export function tryCatchStdErr<T>(fn: () => T | Promise<T>): Result<T> | Promise
         // Sync success path
         return { ok: true as const, data: value as T, error: null };
     } catch (error) {
-        const finalError = stderr(error, { patchToString: true });
+        const finalError = stderr(error);
         return { ok: false as const, data: null, error: finalError };
     }
 }
