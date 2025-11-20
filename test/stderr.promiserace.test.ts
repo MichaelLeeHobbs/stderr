@@ -68,7 +68,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 console.log('Original error type:', (e as Error)?.constructor?.name);
                 console.log('Original error message:', (e as Error).message);
 
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
 
                 // Assertions
                 expect(normalized).toBeInstanceOf(Error);
@@ -119,7 +119,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 console.log('Original error type:', (e as Error)?.constructor?.name);
                 console.log('Original error message:', (e as Error).message);
 
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
 
                 // Assertions - errors from Promise.race should behave the same as direct errors
                 expect(normalized).toBeInstanceOf(Error);
@@ -164,7 +164,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 console.log('Original error type:', (e as Error)?.constructor?.name);
                 console.log('Original error message:', (e as Error).message);
 
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
 
                 // Assertions - same as other fetch error tests
                 expect(normalized).toBeInstanceOf(Error);
@@ -202,7 +202,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([p1, p2]);
                 fail('Should have thrown an error');
             } catch (e) {
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
                 console.log('\n=== TypeError from Promise.race ===');
                 console.log('normalized.toString():', normalized.toString());
 
@@ -225,7 +225,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([p1, p2]);
                 fail('Should have thrown an error');
             } catch (e) {
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
                 console.log('\n=== Custom error from Promise.race ===');
                 console.log('normalized.toString():', normalized.toString());
                 console.log('normalized:', JSON.stringify(normalized, null, 2));
@@ -249,7 +249,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([p1, p2]);
                 fail('Should have thrown an error');
             } catch (e) {
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
                 console.log('\n=== Error with cause chain from Promise.race ===');
                 console.log('normalized.toString():', normalized.toString());
 
@@ -269,7 +269,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([p1, p2]);
                 fail('Should have thrown an error');
             } catch (e) {
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
                 console.log('\n=== Plain string from Promise.race ===');
                 console.log('normalized.toString():', normalized.toString());
 
@@ -285,7 +285,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([p1, p2]);
                 fail('Should have thrown an error');
             } catch (e) {
-                const normalized = stderr(e, {patchToString: true});
+                const normalized = stderr(e, { patchToString: true });
                 console.log('\n=== Null from Promise.race ===');
                 console.log('normalized.toString():', normalized.toString());
 

@@ -1,4 +1,5 @@
 // src/index.ts
+export { StdError, StdErrorShape } from './StdError';
 export { stderr } from './stderr';
 export { errorToJson } from './errorToJson';
 export { tryCatch } from './tryCatch';

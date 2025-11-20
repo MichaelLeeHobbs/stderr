@@ -9,6 +9,12 @@ export type ErrorRecord = Dictionary;
 
 export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
+/**
+ * ErrorShape represents the structure of standardized errors.
+ * This is the base interface that all normalized errors conform to.
+ *
+ * @see StdError - The concrete class implementation of ErrorShape
+ */
 export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     /** Error name - optional to reflect real world */
     name?: string;
