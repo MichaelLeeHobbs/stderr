@@ -52,3 +52,4 @@ export async function tryCatch<T, E = unknown>(promise: Promise<T>, mapError?: (
         return { ok: false, data: null, error: finalError };
     }
 }
+// specify init . --ai copilot --script ps --no-git

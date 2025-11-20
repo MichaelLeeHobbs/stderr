@@ -34,7 +34,8 @@
   "scripts": {
     "build": "tsup",
     "build:watch": "tsup --watch",
-    "test": "jest --coverage",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
     "test:watch": "jest --watch",
     "lint": "eslint src/**/*.ts test/**/*.ts",
     "lint:fix": "eslint --fix src/**/*.ts test/**/*.ts",
@@ -42,11 +43,11 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist coverage",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run lint:fix && pnpm run test",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run lint:fix && pnpm run test:coverage",
     "version:major": "npm version major",
     "version:minor": "npm version minor",
     "version:patch": "npm version patch",
-    "preversion": "pnpm run lint && pnpm run test",
+    "preversion": "pnpm run lint && pnpm run test:coverage",
     "postversion": "git push && git push --tags",
     "dry-run": "npm pack --dry-run"
   },
