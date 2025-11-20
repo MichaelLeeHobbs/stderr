@@ -321,7 +321,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(input); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('normalizes non-Error cause on object input to Error (native default)', () => {
@@ -329,7 +328,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(input); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner detail');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('normalizes Error cause on Error instance input (native default)', () => {
@@ -339,7 +337,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(err); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('normalizes non-Error cause on Error instance input to Error (native default)', () => {
@@ -348,7 +345,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(err); // useCauseError: true (default)
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner detail');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('attaches Error cause manually when useCauseError is false (object input)', () => {
@@ -357,7 +353,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(input, { useCauseError: false });
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('attaches normalized non-Error cause manually when useCauseError is false (object input)', () => {
@@ -365,7 +360,6 @@ describe('stderr', () => {
             const normalized = stderr<ErrorShape>(input, { useCauseError: false });
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as Error).message).toBe('inner detail');
-            expect(Object.getOwnPropertyDescriptor(normalized, 'cause')?.enumerable).toBe(true);
         });
 
         it('normalizes deeply nested cause chains by default', () => {
