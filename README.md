@@ -18,6 +18,7 @@
 ### Migration Guide
 
 **Before (v1.x)**:
+
 ```javascript
 import { stderr, errorToJson } from 'stderr-lib';
 
@@ -27,6 +28,7 @@ const json = errorToJson(err); // Serialize to JSON
 ```
 
 **After (v2.0)**:
+
 ```javascript
 import { stderr } from 'stderr-lib';
 
@@ -36,6 +38,7 @@ const json = JSON.stringify(err); // Built-in toJSON() method!
 ```
 
 **What You Get:**
+
 - ✅ Cleaner API - no options needed for most cases
 - ✅ Automatic comprehensive `toString()` - always includes cause, errors, custom properties
 - ✅ Automatic `toJSON()` - works with `JSON.stringify()` out of the box
@@ -52,20 +55,20 @@ const json = JSON.stringify(err); // Built-in toJSON() method!
 ```javascript
 // Before stderr - Missing critical error details
 try {
-  await problematicOperation();
+    await problematicOperation();
 } catch (e) {
-  console.log(e.toString()); // "Error: fetch failed" - Where's the cause? The details?
-  console.log(JSON.stringify(e)); // "{}" - Most Error properties aren't enumerable!
+    console.log(e.toString()); // "Error: fetch failed" - Where's the cause? The details?
+    console.log(JSON.stringify(e)); // "{}" - Most Error properties aren't enumerable!
 }
 
 // After stderr - Complete error visibility
 try {
-  await problematicOperation();
+    await problematicOperation();
 } catch (e) {
-  const err = stderr(e); // Returns StdError instance
-  console.log(err.toString()); // Full error with cause chain, all properties, nested errors!
-  console.log(JSON.stringify(err)); // Everything serialized automatically!
-  logger.error('Operation failed', err); // Your logger now captures EVERYTHING
+    const err = stderr(e); // Returns StdError instance
+    console.log(err.toString()); // Full error with cause chain, all properties, nested errors!
+    console.log(JSON.stringify(err)); // Everything serialized automatically!
+    logger.error('Operation failed', err); // Your logger now captures EVERYTHING
 }
 ```
 
@@ -102,7 +105,7 @@ import { stderr } from 'stderr-lib';
 try {
     await problematicOperation();
 } catch (e) {
-    const normalizedError = stderr(e);  // Returns StdError with built-in toString()
+    const normalizedError = stderr(e); // Returns StdError with built-in toString()
     logger.error(normalizedError.toString()); // EVERYTHING is logged!
     // Or just pass it directly - most loggers call toString() automatically
     logger.error('Operation failed:', normalizedError);
@@ -116,7 +119,6 @@ The killer feature of `stderr` is that all returned `StdError` instances have co
 ```javascript
 import { stderr } from 'stderr-lib';
 
-
 // Complex error with cause chain and metadata
 const error = {
     name: 'DatabaseError',
@@ -128,12 +130,12 @@ const error = {
         name: 'ConnectionError',
         message: 'Connection lost',
         code: 'ECONNRESET',
-        cause: 'Network timeout'
+        cause: 'Network timeout',
     },
     errors: {
         email: 'Already exists',
-        username: 'Too short'
-    }
+        username: 'Too short',
+    },
 };
 
 // With global config, just call stderr()
@@ -161,8 +163,8 @@ DatabaseError: Failed to save user
 logger.error('Operation failed:', normalized.toString());
 
 // You can also configure other defaults globally
-stderr.maxDepth = 10;  // Deeper recursion for complex errors
-stderr.includeNonEnumerable = true;  // Include hidden properties
+stderr.maxDepth = 10; // Deeper recursion for complex errors
+stderr.includeNonEnumerable = true; // Include hidden properties
 ```
 
 ## Features
@@ -202,27 +204,27 @@ import { stderr } from 'stderr-lib';
 
 // The pattern you'll use everywhere
 function safeErrorLog(error, logger = console) {
-  const normalized = stderr(error); // Returns StdError with comprehensive toString()
-  logger.error(normalized.toString());
-  return normalized;
+    const normalized = stderr(error); // Returns StdError with comprehensive toString()
+    logger.error(normalized.toString());
+    return normalized;
 }
 
 // Use it anywhere you catch errors
 try {
-  await riskyOperation();
+    await riskyOperation();
 } catch (e) {
-  const err = safeErrorLog(e, logger);
-  // err is now a StdError with ALL information preserved
+    const err = safeErrorLog(e, logger);
+    // err is now a StdError with ALL information preserved
 }
 
 // Works with any logger - automatic serialization
 app.use((err, req, res, next) => {
-  const normalized = stderr(err);
-  winston.error('Request failed', {
-    error: normalized.toString(),
-    stack: normalized.stack,
-    metadata: normalized.toJSON() // Built-in JSON serialization
-  });
+    const normalized = stderr(err);
+    winston.error('Request failed', {
+        error: normalized.toString(),
+        stack: normalized.stack,
+        metadata: normalized.toJSON(), // Built-in JSON serialization
+    });
 });
 ```
 
@@ -247,32 +249,32 @@ const err3 = stderr(original);
 console.log(err3.code); // "CUSTOM"
 
 // From unknown values
-stderr(null);        // Error: Unknown error (Null)
-stderr(undefined);   // Error: Unknown error (Undefined)
-stderr(42);         // Error: 42
-stderr({ });        // Error with empty message
+stderr(null); // Error: Unknown error (Null)
+stderr(undefined); // Error: Unknown error (Undefined)
+stderr(42); // Error: 42
+stderr({}); // Error with empty message
 ```
 
 ### Error Cause Chains
 
 ```typescript
 const err = stderr({
-  message: 'Database operation failed',
-  cause: {
-    message: 'Connection timeout',
-    cause: 'Network unreachable'
-  }
+    message: 'Database operation failed',
+    cause: {
+        message: 'Connection timeout',
+        cause: 'Network unreachable',
+    },
 });
 
 // Walk the cause chain
 let current = err;
 while (current) {
-  console.log(current.message);
-  current = current.cause;
+    console.log(current.message);
+    current = current.cause;
 }
 // Output:
 // "Database operation failed"
-// "Connection timeout"  
+// "Connection timeout"
 // "Network unreachable"
 ```
 
@@ -285,31 +287,31 @@ console.log(err.errors); // Array of normalized errors
 
 // From object with errors property
 const validationErr = stderr({
-  name: 'ValidationError',
-  message: 'Multiple fields failed',
-  errors: {
-    email: 'Invalid format',
-    age: 'Must be positive'
-  }
+    name: 'ValidationError',
+    message: 'Multiple fields failed',
+    errors: {
+        email: 'Invalid format',
+        age: 'Must be positive',
+    },
 });
 
 // Complex ORM-style errors
 const mongooseError = {
-  name: 'ValidationError',
-  message: 'User validation failed',
-  errors: {
-    email: {
-      message: 'Email is required',
-      kind: 'required',
-      path: 'email'
+    name: 'ValidationError',
+    message: 'User validation failed',
+    errors: {
+        email: {
+            message: 'Email is required',
+            kind: 'required',
+            path: 'email',
+        },
+        age: {
+            message: 'Age must be positive',
+            kind: 'min',
+            path: 'age',
+            value: -5,
+        },
     },
-    age: {
-      message: 'Age must be positive',
-      kind: 'min',
-      path: 'age',
-      value: -5
-    }
-  }
 };
 
 const normalized = stderr(mongooseError, { patchToString: true });
@@ -333,11 +335,11 @@ console.log(json);
 
 // Perfect for sending errors to logging services
 fetch('/api/log', {
-  method: 'POST',
-  body: JSON.stringify({
-    error: normalized, // toJSON() called automatically
-    timestamp: new Date().toISOString()
-  })
+    method: 'POST',
+    body: JSON.stringify({
+        error: normalized, // toJSON() called automatically
+        timestamp: new Date().toISOString(),
+    }),
 });
 
 // Or use the toJSON() method directly
@@ -354,10 +356,10 @@ import { tryCatch } from 'stderr-lib';
 // TypeScript infers the promise type automatically
 const result = await tryCatch(fetch('/api/data'));
 if (!result.ok) {
-  // Safe error logging with stderr
-  const err = stderr(result.error, { patchToString: true });
-  logger.error(err.toString());
-  return;
+    // Safe error logging with stderr
+    const err = stderr(result.error, { patchToString: true });
+    logger.error(err.toString());
+    return;
 }
 // TypeScript knows result.data is Response type here
 console.log('Success:', result.data);
@@ -368,29 +370,29 @@ console.log('Success:', result.data);
 ```typescript
 // Specify both success and error types explicitly
 interface User {
-  id: number;
-  name: string;
-  email: string;
+    id: number;
+    name: string;
+    email: string;
 }
 
 class ApiError extends Error {
-  constructor(message: string, public code: number) {
-    super(message);
-  }
+    constructor(
+        message: string,
+        public code: number
+    ) {
+        super(message);
+    }
 }
 
 // Explicitly type both T (success) and E (error)
-const result = await tryCatch<User, ApiError>(
-  fetchUser(userId),
-  (err) => new ApiError(String(err), 500)
-);
+const result = await tryCatch<User, ApiError>(fetchUser(userId), err => new ApiError(String(err), 500));
 
 if (!result.ok) {
-  // result.error is typed as ApiError
-  console.error(`API Error ${result.error.code}: ${result.error.message}`);
+    // result.error is typed as ApiError
+    console.error(`API Error ${result.error.code}: ${result.error.message}`);
 } else {
-  // result.data is typed as User
-  console.log(`User: ${result.data.name} (${result.data.email})`);
+    // result.data is typed as User
+    console.log(`User: ${result.data.name} (${result.data.email})`);
 }
 ```
 
@@ -399,48 +401,42 @@ if (!result.ok) {
 ```typescript
 // Example 1: Network errors with custom error type
 interface NetworkError {
-  type: 'network';
-  status?: number;
-  message: string;
+    type: 'network';
+    status?: number;
+    message: string;
 }
 
-const result = await tryCatch<Response, NetworkError>(
-  fetch('/api/data'),
-  (err) => ({
+const result = await tryCatch<Response, NetworkError>(fetch('/api/data'), err => ({
     type: 'network',
     status: err instanceof Response ? err.status : undefined,
-    message: String(err)
-  })
-);
+    message: String(err),
+}));
 
 // Example 2: Validation errors with multiple error types
 type ValidationError = {
-  type: 'validation';
-  fields: Record<string, string>;
+    type: 'validation';
+    fields: Record<string, string>;
 };
 
 type AppError = NetworkError | ValidationError | Error;
 
-const result = await tryCatch<User, AppError>(
-  createUser(userData),
-  (err) => {
+const result = await tryCatch<User, AppError>(createUser(userData), err => {
     if (isValidationError(err)) {
-      return { type: 'validation', fields: err.fields };
+        return { type: 'validation', fields: err.fields };
     }
     return new Error(String(err));
-  }
-);
+});
 
 // Example 3: Using unknown (default) for flexible error handling
 const result = await tryCatch<User>(
-  fetchUser(id)
-  // E defaults to unknown when not specified
+    fetchUser(id)
+    // E defaults to unknown when not specified
 );
 
 if (!result.ok) {
-  // Normalize and log the unknown error
-  const err = stderr(result.error, { patchToString: true });
-  logger.error(err.toString());
+    // Normalize and log the unknown error
+    const err = stderr(result.error, { patchToString: true });
+    logger.error(err.toString());
 }
 ```
 
@@ -448,17 +444,17 @@ if (!result.ok) {
 
 ```typescript
 const err = stderr(input, {
-  // Maximum recursion depth for nested errors (default: 8)
-  maxDepth: 8,
-  
-  // Include non-enumerable properties (default: false)
-  includeNonEnumerable: false,
-  
-  // Use native AggregateError when available (default: true)
-  useAggregateError: true,
-  
-  // Use native Error cause when available (default: true)
-  useCauseError: true
+    // Maximum recursion depth for nested errors (default: 8)
+    maxDepth: 8,
+
+    // Include non-enumerable properties (default: false)
+    includeNonEnumerable: false,
+
+    // Use native AggregateError when available (default: true)
+    useAggregateError: true,
+
+    // Use native Error cause when available (default: true)
+    useCauseError: true,
 });
 
 // You can also set defaults globally
@@ -476,6 +472,7 @@ StdError automatically has comprehensive `toString()` and `toJSON()` methods.
 Normalizes any input value to a standard Error instance.
 
 **Parameters:**
+
 - `input: unknown` - Any value to normalize
 - `options?: NormalizeOptions` - Optional configuration
 
@@ -486,14 +483,17 @@ Normalizes any input value to a standard Error instance.
 Wraps a Promise to always resolve with a discriminated union result object for superior type safety.
 
 **Generic Parameters:**
+
 - `T` - The type of the success value (inferred from promise)
 - `E` - The type of the error value (defaults to `StdError`)
 
 **Parameters:**
+
 - `promise: Promise<T>` - Promise to wrap
 - `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
 
 **Returns:** `Promise<Result<T, E>>` - Result object with either:
+
 - `{ ok: true, data: T, error: null }` on success
 - `{ ok: false, data: null, error: E }` on failure
 
@@ -503,14 +503,17 @@ Wraps a Promise to always resolve with a discriminated union result object for s
 All errors are normalized via `stderr()` before being passed to `mapError`.
 
 **Generic Parameters:**
+
 - `T` - The type of the success value (inferred from promise)
 - `E` - The type of the error value (defaults to `StdError`)
 
 **Parameters:**
+
 - `promise: Promise<T>` - Promise to wrap
 - `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
 
 **Returns:** `Promise<Result<T, E>>` - Result object with either:
+
 - `{ ok: true, data: T, error: null }` on success
 - `{ ok: false, data: null, error: E }` on failure
 
@@ -520,10 +523,12 @@ Wraps a synchronous or asynchronous function to always return a Result object.
 All errors are normalized via `stderr()` before being passed to `mapError`.
 
 **Generic Parameters:**
+
 - `T` - The type of the success value
 - `E` - The type of the error value (defaults to `StdError`)
 
 **Parameters:**
+
 - `fn: () => T | Promise<T>` - Function to execute (sync or async)
 - `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
 
@@ -533,29 +538,29 @@ All errors are normalized via `stderr()` before being passed to `mapError`.
 
 ```typescript
 // Result type for tryCatch
-type Result<T, E = unknown> = 
-  | { ok: true; data: T; error: null }    // Success
-  | { ok: false; data: null; error: E };  // Failure
+type Result<T, E = unknown> =
+    | { ok: true; data: T; error: null } // Success
+    | { ok: false; data: null; error: E }; // Failure
 
 // Error shape with optional properties
 interface ErrorShape {
-  name?: string;
-  message?: string;
-  stack?: string;
-  cause?: unknown;
-  errors?: unknown;
-  [key: string]: unknown;
+    name?: string;
+    message?: string;
+    stack?: string;
+    cause?: unknown;
+    errors?: unknown;
+    [key: string]: unknown;
 }
 
 // Normalization options
 interface NormalizeOptions {
-  maxDepth?: number;
-  includeNonEnumerable?: boolean;
-  enableSubclassing?: boolean;
-  useAggregateError?: boolean;
-  useCauseError?: boolean;
-  patchToString?: boolean;
-  originalStack?: string;
+    maxDepth?: number;
+    includeNonEnumerable?: boolean;
+    enableSubclassing?: boolean;
+    useAggregateError?: boolean;
+    useCauseError?: boolean;
+    patchToString?: boolean;
+    originalStack?: string;
 }
 ```
 

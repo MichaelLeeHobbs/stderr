@@ -1,5 +1,3 @@
-// src/stderr.ts
-
 // A robust error normalizer with native cause support, AggregateError handling,
 // stack preservation, metadata copying (including non-enumerable & symbols),
 // depth-limited recursion, circular reference detection, and optional subclassing.
@@ -90,9 +88,7 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
         } /* node:coverage ignore next 8 */ catch (err) {
             // Only ignore property access errors (getters that throw, etc.)
             // Re-throw serious errors like out-of-memory
-            if (err instanceof RangeError || err instanceof ReferenceError) {
-                throw err;
-            }
+            if (err instanceof RangeError || err instanceof ReferenceError) throw err;
             // Silently skip properties that can't be accessed (getters that throw, etc.)
         }
     }
@@ -304,7 +300,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     return normalizeMetaData(e, input, opts, depth, seen);
 };
 
-const stderr = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
+const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
     // Validate options (simple inline validation, no Zod needed)
     if (options.maxDepth !== undefined) {
         if (!Number.isInteger(options.maxDepth)) {

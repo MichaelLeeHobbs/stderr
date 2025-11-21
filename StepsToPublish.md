@@ -6,19 +6,20 @@ Follow these steps to publish `stderr-lib` to [npm](https://www.npmjs.com/):
 
 1. **NPM Account:** Create an account at [npmjs.com](https://www.npmjs.com/) if you don't have one.
 2. **Authenticate:** Login to npm from the command line:
-   ```bash
-   npm login
-   ```
+    ```bash
+    npm login
+    ```
 
 ## First-Time Publishing
 
 ### 1. Update Package Name
 
 Update `package.json` to use the new name:
+
 ```json
 {
-  "name": "stderr-lib",
-  // ... rest of your package.json
+    "name": "stderr-lib"
+    // ... rest of your package.json
 }
 ```
 
@@ -39,6 +40,7 @@ npm publish
 ```
 
 This automatically:
+
 - Cleans and rebuilds the dist folder
 - Runs all tests
 - Publishes to npm
@@ -58,6 +60,7 @@ git push --tags
 ```
 
 Then create a GitHub release:
+
 1. Go to https://github.com/MichaelLeeHobbs/stderr/releases
 2. Click "Create a new release"
 3. Choose the tag `v1.0.0`
@@ -82,6 +85,7 @@ pnpm version:major
 ```
 
 This automatically:
+
 - Runs linting and tests
 - Updates version in package.json
 - Creates a git commit and tag
@@ -96,6 +100,7 @@ npm publish
 ### 3. Create GitHub Release
 
 Since the `postversion` script already pushed the tag, just create the release:
+
 1. Go to https://github.com/MichaelLeeHobbs/stderr/releases
 2. Click "Draft a new release"
 3. Select the new tag that was just pushed
@@ -105,10 +110,12 @@ Since the `postversion` script already pushed the tag, just create the release:
 ## Post-Publish Verification
 
 Verify your package at:
+
 - https://www.npmjs.com/package/stderr-lib
 - https://github.com/MichaelLeeHobbs/stderr/releases
 
 Check installation works:
+
 ```bash
 npm install stderr-lib
 ```
