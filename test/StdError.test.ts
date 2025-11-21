@@ -389,7 +389,10 @@ describe('StdError', () => {
                 // This tests that the prototype chain is maintained correctly
                 // The internal code at lines 132-133 ensures proper inheritance
                 class CustomStdError extends StdError {
-                    constructor(message: string, public code: string) {
+                    constructor(
+                        message: string,
+                        public code: string
+                    ) {
                         super(message, { name: 'CustomError' });
                     }
                 }
@@ -405,8 +408,8 @@ describe('StdError', () => {
                 const error = new StdError('Test', { maxDepth: 1 });
                 const deepCause = new StdError('Level 1', {
                     cause: new StdError('Level 2', {
-                        cause: new StdError('Level 3')
-                    })
+                        cause: new StdError('Level 3'),
+                    }),
                 });
                 (error as StdError & { cause: unknown }).cause = deepCause;
 
@@ -419,9 +422,9 @@ describe('StdError', () => {
                     maxDepth: 1,
                     errors: [
                         new StdError('Error 1', {
-                            errors: [new StdError('Nested')]
-                        })
-                    ]
+                            errors: [new StdError('Nested')],
+                        }),
+                    ],
                 });
                 const str = error.toString();
                 expect(str).toContain('[Max depth of 1 reached]');
@@ -514,14 +517,16 @@ describe('StdError', () => {
 
             it('formats object with > 3 keys', () => {
                 const error = new StdError('Test', {
-                    bigObj: { a: 1, b: 2, c: 3, d: 4, e: 5 }
+                    bigObj: { a: 1, b: 2, c: 3, d: 4, e: 5 },
                 });
                 const str = error.toString();
                 expect(str).toContain('{Object with 5 keys}');
             });
 
             it('formats unknown type fallback', () => {
-                const func = function testFunc() { return 42; };
+                const func = function testFunc() {
+                    return 42;
+                };
                 const error = new StdError('Test', { funcValue: func });
                 const str = error.toString();
                 expect(str).toContain('funcValue:');
@@ -531,12 +536,7 @@ describe('StdError', () => {
         describe('formatErrors with non-error items (lines 318, 331)', () => {
             it('formats errors array with non-error-shaped items', () => {
                 const error = new StdError('Test', {
-                    errors: [
-                        new Error('Real error'),
-                        'string error',
-                        42,
-                        { notAnError: true }
-                    ]
+                    errors: [new Error('Real error'), 'string error', 42, { notAnError: true }],
                 });
                 const str = error.toString();
                 expect(str).toContain('[errors]');
@@ -550,8 +550,8 @@ describe('StdError', () => {
                         err1: new Error('Real error'),
                         err2: 'string value',
                         err3: 123,
-                        err4: { data: 'value' }
-                    }
+                        err4: { data: 'value' },
+                    },
                 });
                 const str = error.toString();
                 expect(str).toContain('[errors]');
@@ -601,7 +601,7 @@ describe('StdError', () => {
                 const obj = {};
                 Object.defineProperty(obj, sym, {
                     value: 'symbolValue',
-                    enumerable: true
+                    enumerable: true,
                 });
                 const error = new StdError('Test', { data: obj });
                 const json = error.toJSON();

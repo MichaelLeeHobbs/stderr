@@ -337,21 +337,6 @@ describe('stderr', () => {
             expect((normalized.cause as Error).message).toBe('inner detail');
         });
 
-        it('attaches Error cause manually when useCauseError is false (object input)', () => {
-            const cause = new Error('inner');
-            const input = { message: 'outer', cause };
-            const normalized = stderr<ErrorShape>(input, { useCauseError: false });
-            expect(normalized.cause).toBeInstanceOf(Error);
-            expect((normalized.cause as Error).message).toBe('inner');
-        });
-
-        it('attaches normalized non-Error cause manually when useCauseError is false (object input)', () => {
-            const input = { message: 'outer', cause: 'inner detail' };
-            const normalized = stderr<ErrorShape>(input, { useCauseError: false });
-            expect(normalized.cause).toBeInstanceOf(Error);
-            expect((normalized.cause as Error).message).toBe('inner detail');
-        });
-
         it('normalizes deeply nested cause chains by default', () => {
             const nested = { cause: { cause: 'inner' } }; // obj -> obj -> primitive
             const err = stderr<ErrorShape>(nested);
@@ -409,24 +394,15 @@ describe('stderr', () => {
             expect(err.errors[1].message).toBe('b');
         });
 
-        it('uses AggregateError constructor if name is AggregateError and useAggregateError is true', () => {
+        it('creates StdError with errors array and normalizes each error', () => {
             const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
-            const err = stderr<ErrorShapeWithErrorsArray>(input, { useAggregateError: true });
+            const err = stderr<ErrorShapeWithErrorsArray>(input);
             expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('multi');
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors[0].message).toBe('a');
-        });
-
-        it('attaches errors array manually if useAggregateError is false', () => {
-            const input = { name: 'AggregateError', message: 'multi', errors: ['a', new Error('b')] };
-            const err = stderr<ErrorShapeWithErrorsArray>(input, { useAggregateError: false });
-            expect(err).toBeInstanceOf(Error);
-            expect(err.name).toBe('AggregateError');
-            expect(err.message).toBe('multi');
-            expect(Array.isArray(err.errors)).toBe(true);
-            expect(err.errors[0].message).toBe('a');
+            expect(err.errors[1].message).toBe('b');
         });
 
         // --- Object map of errors ---
@@ -515,7 +491,7 @@ describe('stderr', () => {
             expect(err).toBeInstanceOf(Error);
             const c1 = err.cause as ErrorShape;
             expect(c1).toBeInstanceOf(Error);
-            expect(c1.message).toBe('<Max depth of 1 reached>');
+            expect(c1.message).toBe('[Max depth of 1 reached]');
             // At this boundary, deeper cause should not be traversed
             expect(c1.cause).toBeUndefined();
         });
@@ -527,7 +503,7 @@ describe('stderr', () => {
             expect(Array.isArray(err.errors)).toBe(true);
             const e1 = err.errors[0] as ErrorShape;
             expect(e1).toBeInstanceOf(Error);
-            expect(e1.message).toBe('<Max depth of 1 reached>');
+            expect(e1.message).toBe('[Max depth of 1 reached]');
             expect(e1.cause).toBeUndefined();
         });
 
@@ -543,7 +519,7 @@ describe('stderr', () => {
             const c1 = e1.cause as ErrorShape; // Cause at depth 2
             expect(c1).toBeInstanceOf(Error);
             // When limit is hit inside error normalization, bracket-style placeholder is used
-            expect(c1.message).toBe('<Max depth of 2 reached>');
+            expect(c1.message).toBe('[Max depth of 2 reached]');
         });
 
         it('stops recursion at maxDepth for metadata properties', () => {
@@ -590,7 +566,7 @@ describe('stderr', () => {
             e.cause = e; // Direct circular reference
             const err = stderr<ErrorShape>(e);
             expect(err.cause).toBeInstanceOf(Error);
-            expect((err.cause as ErrorShape).message).toBe('<Circular>');
+            expect((err.cause as ErrorShape).message).toBe('[Circular]');
         });
 
         it('detects circular cause in object input', () => {
@@ -598,14 +574,14 @@ describe('stderr', () => {
             obj.cause = obj; // Direct circular reference
             const err = stderr(obj);
             expect(err.cause).toBeInstanceOf(Error);
-            expect((err.cause as ErrorShape).message).toBe('<Circular>');
+            expect((err.cause as ErrorShape).message).toBe('[Circular]');
         });
 
         it('detects circular reference in metadata property', () => {
             const obj: { foo: string; self?: string | unknown } = { foo: 'bar' };
             obj.self = obj; // Circular reference in metadata
             const err = stderr<ErrorShape & { self: string }>(obj);
-            expect(err.self).toBe('<Circular>');
+            expect(err.self).toBe('[Circular]');
         });
 
         it('detects indirect circular cause reference', () => {
@@ -617,7 +593,7 @@ describe('stderr', () => {
             expect(normalized.message).toBe('err1');
             expect(normalized.cause).toBeInstanceOf(Error);
             expect((normalized.cause as ErrorShape).message).toBe('err2');
-            expect(((normalized.cause as ErrorShape).cause as ErrorShape).message).toBe('<Circular>');
+            expect(((normalized.cause as ErrorShape).cause as ErrorShape).message).toBe('[Circular]');
         });
 
         it('detects circular reference in errors array', () => {
@@ -632,7 +608,7 @@ describe('stderr', () => {
             expect(err.errors[0]).toBeInstanceOf(Error);
             expect(err.errors[0].message).toBe('a');
             expect(err.errors[1]).toBeInstanceOf(Error);
-            expect(err.errors[1].message).toBe('<Circular>');
+            expect(err.errors[1].message).toBe('[Circular]');
         });
 
         it('detects circular reference in errors object map', () => {
@@ -646,7 +622,7 @@ describe('stderr', () => {
             expect(err.errors.a).toBeInstanceOf(Error);
             expect((err.errors.a as ErrorShape).message).toBe('x');
             expect(err.errors.b).toBeInstanceOf(Error);
-            expect((err.errors.b as ErrorShape).message).toBe('<Circular>');
+            expect((err.errors.b as ErrorShape).message).toBe('[Circular]');
         });
     });
 

@@ -7,8 +7,7 @@
 import { StdError } from './StdError';
 import type { Dictionary, ErrorRecord, ErrorShape } from './types';
 import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
-import { extractMetaData } from './libs';
-import { primitiveToError, unknownToString } from './utils';
+import { getCustomKeys, primitiveToError, unknownToString } from './utils';
 
 export interface NormalizeOptions {
     /** If provided, overrides the new error's stack trace. */
@@ -17,18 +16,12 @@ export interface NormalizeOptions {
     maxDepth?: number;
     /** Include non-enumerable properties in metadata copying. */
     includeNonEnumerable?: boolean;
-    /** Use AggregateError if available and applicable. (Note: StdError handles this automatically) */
-    useAggregateError?: boolean;
-    /** Use CauseError if available and applicable. (Note: StdError handles this automatically) */
-    useCauseError?: boolean;
 }
 
 interface NormalizeOptionsInternal extends NormalizeOptions {
     originalStack: string | undefined;
     maxDepth: number;
     includeNonEnumerable: boolean;
-    useAggregateError: boolean;
-    useCauseError: boolean;
 }
 
 interface StderrFn {
@@ -36,8 +29,6 @@ interface StderrFn {
 
     maxDepth: number;
     includeNonEnumerable: boolean;
-    useAggregateError: boolean;
-    useCauseError: boolean;
 }
 
 // Forward declarations needed due to circular dependencies between functions
@@ -46,23 +37,24 @@ let normalizeUnknown: (input: unknown, opts: NormalizeOptionsInternal, depth: nu
 // eslint-disable-next-line prefer-const
 let normalizeObjectToError: (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => ErrorShape;
 
-const IGNORED_META_KEYS = new Set(['name', 'message', 'stack', 'cause', 'errors']);
-
 const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    const metadataKeys = extractMetaData(source, opts);
+    const metadataKeys = getCustomKeys(source, { includeNonEnumerable: opts.includeNonEnumerable });
     for (const key of metadataKeys) {
         try {
             const keyStr = key.toString();
-            if (IGNORED_META_KEYS.has(keyStr)) continue;
-
             let value = source[key as keyof typeof source];
 
             if (!isPrimitive(value)) value = normalizeUnknown(value, opts, depth + 1, seen);
             else if (isSymbol(value)) value = value.toString();
 
             if (value !== undefined) target[keyStr] = value;
-        } /* node:coverage ignore next 3 */ catch {
-            // Ignore metadata copy errors
+        } catch (err) {
+            // Only ignore property access errors (getters that throw, etc.)
+            // Re-throw serious errors like out-of-memory
+            if (err instanceof RangeError || err instanceof ReferenceError) {
+                throw err;
+            }
+            // Silently skip properties that can't be accessed (getters that throw, etc.)
         }
     }
     return target;
@@ -70,28 +62,31 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
 
 // We don't want to force the error shape on purely unknown objects
 normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
-    // 1) Depth limit for unknown structures
-    if (depth >= opts.maxDepth) return `<Max depth of ${depth} reached>`;
+    // Depth limit for unknown structures
+    if (depth >= opts.maxDepth) return `[Max depth of ${opts.maxDepth} reached]`;
 
-    // 2) Primitives (symbol first for clarity)
+    // Primitives (symbol first for clarity)
     if (isSymbol(input)) return input.toString();
     if (isPrimitive(input)) return input;
 
-    // 3) Circular detection for objects/arrays
-    if (seen.has(input as object)) return '<Circular>';
+    // Circular detection for objects/arrays
+    if (seen.has(input as object)) return '[Circular]';
     seen.add(input as object);
 
-    // 4) Arrays
+    // Arrays
     if (isArray(input)) return input.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
 
-    // 5) Error-like
+    // Error-like
     if (isErrorShaped(input)) return normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
 
-    // 6) Plain objects
+    // Plain objects
     if (isObject(input)) {
         const obj = input as ErrorRecord;
         const normalized: ErrorRecord = {};
-        const keys = extractMetaData(obj, opts);
+        const keys = getCustomKeys(obj, {
+            includeNonEnumerable: opts.includeNonEnumerable,
+            excludeKeys: new Set(), // Don't exclude any keys for plain objects
+        });
         for (const key of keys) {
             const keyStr = key.toString();
             let value = obj[key as keyof typeof obj];
@@ -104,18 +99,18 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         return normalized;
     }
 
-    /* node:coverage ignore next 3 */
-    // 7) Fallback for any other unknown type - we should never reach here
+    /* node:coverage ignore next 2 */
+    // Fallback for any other unknown type
     return String(input);
 };
 
 normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
     // Depth check for Error normalization
-    if (depth >= opts.maxDepth) return new StdError(`[Max depth of ${depth} reached]`, { maxDepth: opts.maxDepth });
+    if (depth >= opts.maxDepth) return new StdError(`[Max depth of ${opts.maxDepth} reached]`, { maxDepth: opts.maxDepth });
 
     const errorShape: Partial<ErrorShape> = {};
 
-    // --- Cause ---
+    // Cause
     if (input.cause !== undefined && input.cause !== null) {
         const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
         if (isErrorShaped(normalizedCause)) errorShape.cause = normalizedCause as ErrorShape;
@@ -123,7 +118,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         else if (isObject(normalizedCause)) errorShape.cause = normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
     }
 
-    // --- Errors (shape detection) ---
+    // Errors (shape detection)
     type AggregateMode = 'none' | 'array' | 'single';
     let aggregateMode: AggregateMode = 'none';
 
@@ -156,7 +151,10 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     } else if (isObject(input.errors)) {
         // Non-standard object map of errors
         const normalizedErrors: ErrorRecord = {};
-        const errorKeys = extractMetaData(input.errors as object, opts);
+        const errorKeys = getCustomKeys(input.errors as object, {
+            includeNonEnumerable: opts.includeNonEnumerable,
+            excludeKeys: new Set(), // Don't exclude any keys from errors object
+        });
         for (const key of errorKeys) {
             const keyStr = key.toString();
             const value = (input.errors as Dictionary)[key as keyof typeof input.errors];
@@ -183,7 +181,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
         }
     }
 
-    // --- Name and Message (shape-aware) ---
+    // Name and Message (shape-aware)
     const computeFinalName = (): string => {
         if (aggregateMode === 'single') return input.name ? unknownToString(input.name) : 'AggregateError';
         if (aggregateMode === 'array') return input.name ? unknownToString(input.name) : 'Error';
@@ -202,19 +200,16 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     const finalName = computeFinalName();
     const finalMessage = computeFinalMessage();
 
-    // --- Construct the StdError instance ---
-    // Build options object for StdError constructor
+    // Construct the StdError instance
     const stderrOptions: Dictionary = {
         name: finalName,
         maxDepth: opts.maxDepth,
     };
 
-    // Add cause if present
     if (errorShape.cause !== undefined && errorShape.cause !== null) {
         stderrOptions.cause = errorShape.cause;
     }
 
-    // Add errors if present
     if (errorShape.errors !== undefined && errorShape.errors !== null) {
         stderrOptions.errors = errorShape.errors;
     }
@@ -261,19 +256,18 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
     // Preserve the original stack if provided
     if (opts.originalStack) e.stack = opts.originalStack;
 
+    // Type cast to generic T - allows callers to specify expected return type
+    // while we always return StdError. This is safe because StdError extends Error
+    // and implements ErrorShape, satisfying most use cases.
     return e as T;
 };
 
 // Default options for stderr
 stderr.maxDepth = 8;
 stderr.includeNonEnumerable = false;
-stderr.useAggregateError = true;
-stderr.useCauseError = true;
 
 const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     originalStack: undefined,
     maxDepth: stderr.maxDepth,
     includeNonEnumerable: stderr.includeNonEnumerable,
-    useAggregateError: stderr.useAggregateError,
-    useCauseError: stderr.useCauseError,
 });

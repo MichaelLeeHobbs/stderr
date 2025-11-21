@@ -1,9 +1,10 @@
 // src/types.ts
 
-export type Dictionary = {
-    [key: string]: unknown;
-    [key: symbol]: unknown;
-};
+/**
+ * Dictionary type for objects with string or symbol keys and unknown values.
+ * More specific than the previous version with separate index signatures.
+ */
+export type Dictionary = Record<string | symbol, unknown>;
 
 export type ErrorRecord = Dictionary;
 

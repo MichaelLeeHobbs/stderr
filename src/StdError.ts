@@ -2,17 +2,13 @@
 
 import type { ErrorShape, Dictionary } from './types';
 import { isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
+import { getCustomKeys, checkDepthLimit, checkCircular, trackSeen } from './utils';
 
 /**
  * Maximum depth for recursive error display in toString() and toJSON()
  * Can be overridden per instance or globally via StdError.defaultMaxDepth
  */
 const DEFAULT_MAX_DEPTH = 8;
-
-/**
- * Keys to exclude when displaying custom properties in toString()
- */
-const STANDARD_ERROR_KEYS = new Set(['name', 'message', 'stack', 'cause', 'errors']);
 
 /**
  * StdError is a standardized Error class that provides consistent error handling
@@ -128,7 +124,8 @@ export class StdError extends Error implements ErrorShape {
 
         // Ensure proper prototype chain for subclasses
         const actualProto = new.target.prototype;
-        if (Object.getPrototypeOf(this) !== actualProto) { // Untested code path
+        if (Object.getPrototypeOf(this) !== actualProto) {
+            // Untested code path
             Object.setPrototypeOf(this, actualProto);
         }
     }
@@ -174,18 +171,14 @@ export class StdError extends Error implements ErrorShape {
         const indent = '  '.repeat(depth);
 
         // Check depth limit
-        if (depth >= maxDepth) {
-            return `${indent}[Max depth of ${maxDepth} reached]`; // Untested code path
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth, indent);
+        if (depthMsg) return depthMsg;
 
         // Check circular reference
-        if (isObject(error) && seen.has(error as object)) { // Untested code path
-            return `${indent}[Circular]`;
-        }
+        const circularMsg = checkCircular(error, seen, indent);
+        if (circularMsg) return circularMsg;
 
-        if (isObject(error)) {
-            seen.add(error as object);
-        }
+        trackSeen(error, seen);
 
         const lines: string[] = [];
 
@@ -228,24 +221,7 @@ export class StdError extends Error implements ErrorShape {
      * Gets custom property keys (excluding standard Error properties)
      */
     private getCustomProperties(error: ErrorShape): (string | symbol)[] {
-        const keys: (string | symbol)[] = [];
-
-        // String keys
-        for (const key of Object.keys(error)) {
-            if (!STANDARD_ERROR_KEYS.has(key)) {
-                keys.push(key);
-            }
-        }
-
-        // Symbol keys (enumerable only)
-        for (const sym of Object.getOwnPropertySymbols(error)) {
-            const desc = Object.getOwnPropertyDescriptor(error, sym);
-            if (desc?.enumerable && !STANDARD_ERROR_KEYS.has(sym.toString())) {
-                keys.push(sym);
-            }
-        }
-
-        return keys;
+        return getCustomKeys(error);
     }
 
     /**
@@ -254,9 +230,8 @@ export class StdError extends Error implements ErrorShape {
     private formatCause(cause: unknown, depth: number, seen: WeakSet<object>): string {
         const maxDepth = this.getMaxDepth();
 
-        if (depth >= maxDepth) {
-            return `[Max depth of ${maxDepth} reached]`;
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth);
+        if (depthMsg) return depthMsg;
 
         if (isErrorShaped(cause)) {
             return this.formatError(cause as ErrorShape, depth, seen);
@@ -272,9 +247,8 @@ export class StdError extends Error implements ErrorShape {
         const maxDepth = this.getMaxDepth();
         const indent = '  '.repeat(depth);
 
-        if (depth >= maxDepth) {
-            return `[Max depth of ${maxDepth} reached]`;
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth);
+        if (depthMsg) return depthMsg;
 
         if (isArray(errors)) {
             if (errors.length === 0) return '[]';
@@ -315,9 +289,8 @@ export class StdError extends Error implements ErrorShape {
     private formatValue(value: unknown, depth: number, seen: WeakSet<object>): string {
         const maxDepth = this.getMaxDepth();
 
-        if (depth >= maxDepth) {
-            return `[Max depth of ${maxDepth} reached]`;
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth);
+        if (depthMsg) return depthMsg;
 
         if (value === null) return 'null';
         if (value === undefined) return 'undefined';
@@ -327,9 +300,8 @@ export class StdError extends Error implements ErrorShape {
             return typeof value === 'string' ? `'${value}'` : String(value);
         }
 
-        if (isObject(value) && seen.has(value as object)) {
-            return '[Circular]';
-        }
+        const circularMsg = checkCircular(value, seen);
+        if (circularMsg) return circularMsg;
 
         if (isArray(value)) {
             if (value.length === 0) return '[]';
@@ -338,7 +310,7 @@ export class StdError extends Error implements ErrorShape {
         }
 
         if (isObject(value)) {
-            seen.add(value as object);
+            trackSeen(value, seen);
             const keys = Object.keys(value);
             if (keys.length === 0) return '{}';
             if (keys.length > 3) return `{Object with ${keys.length} keys}`;
@@ -381,21 +353,17 @@ export class StdError extends Error implements ErrorShape {
         const maxDepth = this.getMaxDepth();
 
         // Check depth limit
-        if (depth >= maxDepth) {
-            return `[Max depth of ${maxDepth} reached]`;
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth);
+        if (depthMsg) return depthMsg;
 
         // Check circular reference
-        if (isObject(error) && seen.has(error as object)) {  // Branch untested
-            return '[Circular]';
-        }
+        const circularMsg = checkCircular(error, seen);
+        if (circularMsg) return circularMsg;
 
-        if (isObject(error)) {
-            seen.add(error as object);
-        }
+        trackSeen(error, seen);
 
         const result: Dictionary = {
-            name: error.name || 'Error',  // Branch untested 'Error'
+            name: error.name || 'Error', // Branch untested 'Error'
             message: error.message || '',
         };
 
@@ -432,9 +400,8 @@ export class StdError extends Error implements ErrorShape {
         const maxDepth = this.getMaxDepth();
 
         // Check depth limit
-        if (depth >= maxDepth) {
-            return `[Max depth of ${maxDepth} reached]`;
-        }
+        const depthMsg = checkDepthLimit(depth, maxDepth);
+        if (depthMsg) return depthMsg;
 
         // Primitives
         if (value === null || value === undefined) return value;
@@ -442,9 +409,8 @@ export class StdError extends Error implements ErrorShape {
         if (isPrimitive(value)) return value;
 
         // Circular check
-        if (isObject(value) && seen.has(value as object)) {
-            return '[Circular]';
-        }
+        const circularMsg = checkCircular(value, seen);
+        if (circularMsg) return circularMsg;
 
         // Error-shaped objects
         if (isErrorShaped(value)) {
@@ -458,7 +424,7 @@ export class StdError extends Error implements ErrorShape {
 
         // Plain objects
         if (isObject(value)) {
-            seen.add(value as object);
+            trackSeen(value, seen);
             const result: Dictionary = {};
 
             for (const key of Object.keys(value)) {

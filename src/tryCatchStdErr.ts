@@ -71,6 +71,7 @@ export function tryCatchStdErr<T, E = StdError>(fn: () => T | Promise<T>, mapErr
             // Wrap in async IIFE to preserve literal discriminants
             return (async (): Promise<Result<T, E>> => {
                 try {
+                    // Double cast needed: Promise<T> resolves to T
                     const data = (await value) as Promise<T> as T;
                     return { ok: true as const, data, error: null };
                 } catch (error) {
@@ -82,7 +83,7 @@ export function tryCatchStdErr<T, E = StdError>(fn: () => T | Promise<T>, mapErr
                 }
             })();
         }
-        // Sync success path
+        // Sync success path - cast to T for Result type
         return { ok: true as const, data: value as T, error: null };
     } catch (error) {
         // Always normalize via stderr first
