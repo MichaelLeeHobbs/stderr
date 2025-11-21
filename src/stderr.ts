@@ -9,26 +9,45 @@ import type { Dictionary, ErrorRecord, ErrorShape } from './types';
 import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
 import { getCustomKeys, primitiveToError, unknownToString } from './utils';
 
+/**
+ * Maximum number of properties to process when normalizing error objects.
+ * Prevents DoS attacks via objects with excessive properties.
+ */
+const MAX_PROPERTIES = 1000;
+
+/**
+ * Maximum array length to process when normalizing error arrays.
+ * Prevents DoS attacks via extremely large arrays.
+ */
+const MAX_ARRAY_LENGTH = 10000;
+
+/**
+ * Options for normalizing errors with stderr()
+ */
 export interface NormalizeOptions {
-    /** If provided, overrides the new error's stack trace. */
-    originalStack?: string;
-    /** Maximum recursion depth for nested cause/errors normalization. */
+    /**
+     * Maximum recursion depth for nested cause/errors normalization.
+     *
+     * Prevents infinite recursion in circular error structures.
+     *
+     * @default 8
+     * @example
+     * ```typescript
+     * // Limit depth to 3 levels
+     * const err = stderr(deepError, { maxDepth: 3 });
+     * ```
+     */
     maxDepth?: number;
-    /** Include non-enumerable properties in metadata copying. */
-    includeNonEnumerable?: boolean;
 }
 
 interface NormalizeOptionsInternal extends NormalizeOptions {
-    originalStack: string | undefined;
     maxDepth: number;
-    includeNonEnumerable: boolean;
 }
 
 interface StderrFn {
     <T = StdError>(input: unknown, options?: NormalizeOptions, depth?: number): T;
 
     maxDepth: number;
-    includeNonEnumerable: boolean;
 }
 
 // Forward declarations needed due to circular dependencies between functions
@@ -37,18 +56,38 @@ let normalizeUnknown: (input: unknown, opts: NormalizeOptionsInternal, depth: nu
 // eslint-disable-next-line prefer-const
 let normalizeObjectToError: (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => ErrorShape;
 
+// Private storage for maxDepth (set before defaultOptions)
+let _maxDepth = 8;
+
+// Default options function (uses _maxDepth directly)
+const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
+    maxDepth: _maxDepth,
+});
+
 const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    const metadataKeys = getCustomKeys(source, { includeNonEnumerable: opts.includeNonEnumerable });
-    for (const key of metadataKeys) {
+    // Always include non-enumerable properties for complete error capture
+    const metadataKeys = getCustomKeys(source, { includeNonEnumerable: true });
+
+    // Enforce loop bound to prevent DoS
+    const boundedKeys = metadataKeys.slice(0, MAX_PROPERTIES);
+    if (metadataKeys.length > MAX_PROPERTIES) {
+        // Log warning but continue (graceful degradation)
+        console.warn(`Property count (${metadataKeys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
+    }
+
+    for (const key of boundedKeys) {
         try {
             const keyStr = key.toString();
             let value = source[key as keyof typeof source];
+
+            // Skip functions - they're not useful in serialized errors
+            if (typeof value === 'function') continue;
 
             if (!isPrimitive(value)) value = normalizeUnknown(value, opts, depth + 1, seen);
             else if (isSymbol(value)) value = value.toString();
 
             if (value !== undefined) target[keyStr] = value;
-        } catch (err) {
+        } /* node:coverage ignore next 8 */ catch (err) {
             // Only ignore property access errors (getters that throw, etc.)
             // Re-throw serious errors like out-of-memory
             if (err instanceof RangeError || err instanceof ReferenceError) {
@@ -74,7 +113,13 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
     seen.add(input as object);
 
     // Arrays
-    if (isArray(input)) return input.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
+    if (isArray(input)) {
+        const boundedArray = (input as unknown[]).slice(0, MAX_ARRAY_LENGTH);
+        if (input.length > MAX_ARRAY_LENGTH) {
+            console.warn(`Array length (${input.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
+        }
+        return boundedArray.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
+    }
 
     // Error-like
     if (isErrorShaped(input)) return normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
@@ -83,13 +128,24 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
     if (isObject(input)) {
         const obj = input as ErrorRecord;
         const normalized: ErrorRecord = {};
+        // Always include non-enumerable for complete capture, no key exclusions for plain objects
         const keys = getCustomKeys(obj, {
-            includeNonEnumerable: opts.includeNonEnumerable,
-            excludeKeys: new Set(), // Don't exclude any keys for plain objects
+            includeNonEnumerable: true,
+            excludeKeys: new Set(),
         });
-        for (const key of keys) {
+
+        // Enforce loop bound
+        const boundedKeys = keys.slice(0, MAX_PROPERTIES);
+        if (keys.length > MAX_PROPERTIES) {
+            console.warn(`Property count (${keys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
+        }
+
+        for (const key of boundedKeys) {
             const keyStr = key.toString();
             let value = obj[key as keyof typeof obj];
+
+            // Skip functions - they're not useful in serialized errors
+            if (typeof value === 'function') continue;
 
             if (!isPrimitive(value)) value = normalizeUnknown(value, opts, depth + 1, seen);
             else if (isSymbol(value)) value = value.toString();
@@ -98,8 +154,7 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         }
         return normalized;
     }
-
-    /* node:coverage ignore next 2 */
+    /* node:coverage ignore next 3 */
     // Fallback for any other unknown type
     return String(input);
 };
@@ -125,7 +180,13 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     if (isArray(input.errors)) {
         aggregateMode = 'array';
 
-        errorShape.errors = (input.errors as unknown[])
+        const errorsArray = input.errors as unknown[];
+        const boundedErrors = errorsArray.slice(0, MAX_ARRAY_LENGTH);
+        if (errorsArray.length > MAX_ARRAY_LENGTH) {
+            console.warn(`Errors array length (${errorsArray.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
+        }
+
+        errorShape.errors = boundedErrors
             .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
             .map(ne => {
                 if (isErrorShaped(ne)) return ne as ErrorShape;
@@ -151,13 +212,25 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     } else if (isObject(input.errors)) {
         // Non-standard object map of errors
         const normalizedErrors: ErrorRecord = {};
+        // Always include non-enumerable for complete error capture
         const errorKeys = getCustomKeys(input.errors as object, {
-            includeNonEnumerable: opts.includeNonEnumerable,
-            excludeKeys: new Set(), // Don't exclude any keys from errors object
+            includeNonEnumerable: true,
+            excludeKeys: new Set(),
         });
-        for (const key of errorKeys) {
+
+        // Enforce loop bound
+        const boundedErrorKeys = errorKeys.slice(0, MAX_PROPERTIES);
+        if (errorKeys.length > MAX_PROPERTIES) {
+            console.warn(`Error property count (${errorKeys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
+        }
+
+        for (const key of boundedErrorKeys) {
             const keyStr = key.toString();
             const value = (input.errors as Dictionary)[key as keyof typeof input.errors];
+
+            // Skip functions in error maps
+            if (typeof value === 'function') continue;
+
             const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
 
             if (isErrorShaped(normalizedValue)) normalizedErrors[keyStr] = normalizedValue as ErrorShape;
@@ -221,9 +294,25 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     return normalizeMetaData(e, input, opts, depth, seen);
 };
 
-export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
+const stderr = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
+    // Validate options (simple inline validation, no Zod needed)
+    if (options.maxDepth !== undefined) {
+        if (!Number.isInteger(options.maxDepth)) {
+            throw new TypeError(`maxDepth must be an integer, got: ${typeof options.maxDepth}`);
+        }
+        if (options.maxDepth < 1 || options.maxDepth > 1000) {
+            throw new RangeError(`maxDepth must be between 1 and 1000, got: ${options.maxDepth}`);
+        }
+    }
+
     const seen = new WeakSet<object>();
     const opts: NormalizeOptionsInternal = { ...defaultOptions(), ...options };
+
+    // Capture original stack if input is error-shaped
+    let originalStack: string | undefined;
+    if (isErrorShaped(input)) {
+        originalStack = (input as ErrorShape).stack;
+    }
 
     let e: ErrorShape;
 
@@ -236,8 +325,6 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
             e = new StdError('[Circular Input]');
         } else {
             seen.add(input as object);
-
-            if (isErrorShaped(input) && !opts.originalStack) opts.originalStack = (input as ErrorShape).stack;
 
             // Handle Error-like objects
             if (isFunction(input)) {
@@ -253,8 +340,10 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
         }
     }
 
-    // Preserve the original stack if provided
-    if (opts.originalStack) e.stack = opts.originalStack;
+    // Always preserve original stack trace if we captured one
+    if (originalStack) {
+        e.stack = originalStack;
+    }
 
     // Type cast to generic T - allows callers to specify expected return type
     // while we always return StdError. This is safe because StdError extends Error
@@ -262,12 +351,24 @@ export const stderr: StderrFn = <T = ErrorShape>(input: unknown, options: Normal
     return e as T;
 };
 
-// Default options for stderr
-stderr.maxDepth = 8;
-stderr.includeNonEnumerable = false;
-
-const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
-    originalStack: undefined,
-    maxDepth: stderr.maxDepth,
-    includeNonEnumerable: stderr.includeNonEnumerable,
+// Configure maxDepth with getter/setter for validation
+Object.defineProperty(stderr, 'maxDepth', {
+    get(): number {
+        return _maxDepth;
+    },
+    set(value: number) {
+        if (!Number.isInteger(value)) {
+            throw new TypeError(`maxDepth must be an integer, got: ${typeof value}`);
+        }
+        if (value < 1 || value > 1000) {
+            throw new RangeError(`maxDepth must be between 1 and 1000, got: ${value}`);
+        }
+        _maxDepth = value;
+    },
+    enumerable: true,
+    configurable: false,
 });
+
+// Export stderr with proper type (maxDepth property added via Object.defineProperty above)
+export { stderr };
+export type { StderrFn };

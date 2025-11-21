@@ -1,6 +1,6 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { ErrorShape, isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } from './types';
 
 /**
  * Standard Error property keys that should be excluded when extracting custom properties
@@ -122,11 +122,8 @@ export const unknownToString = (input: unknown): string => {
         try {
             // Avoid JSON.stringify({}) for errors; prefer their message/name if present.
             if (isErrorShaped(input)) {
-                const msg = input.message;
-                if (msg != null) return String(msg);
-
-                const nm = input.name;
-                if (nm != null) return String(nm);
+                if (input.message != null) return String(input.message);
+                if (input.name != null) return String(input.name);
             }
 
             return Object.prototype.toString.call(input); // Safer fallback
@@ -139,7 +136,7 @@ export const unknownToString = (input: unknown): string => {
     return String(input);
 };
 
-export const primitiveToError = (input: Primitive): ErrorShape => {
+export const primitiveToError = (input: Primitive): StdError => {
     /* node:coverage ignore next */
     if (!isPrimitive(input)) throw new TypeError('Input must be a primitive value');
 

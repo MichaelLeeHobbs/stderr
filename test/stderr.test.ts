@@ -187,31 +187,14 @@ describe('stderr', () => {
     // Stack Trace Handling
     // =========================================================================
     describe('Stack Trace Handling', () => {
-        it('preserves original stack trace by default', () => {
+        it('always preserves original stack trace from Error inputs', () => {
             const original = new Error('original');
             const originalStack = original.stack;
             const err = stderr(original);
             expect(err.stack).toBe(originalStack);
         });
 
-        it('overrides stack trace with originalStack option (string input)', () => {
-            const err = stderr('oops', { originalStack: 'CUSTOM_STACK' });
-            expect(err.stack).toBe('CUSTOM_STACK');
-        });
-
-        it('overrides stack trace with originalStack option (object input)', () => {
-            const obj = { message: 'oops' };
-            const err = stderr(obj, { originalStack: 'CUSTOM_STACK' });
-            expect(err.stack).toBe('CUSTOM_STACK');
-        });
-
-        it('overrides stack trace with originalStack option (Error input)', () => {
-            const original: Error = new Error('initial');
-            const result = stderr(original, { originalStack: 'CUSTOM_STACK' });
-            expect(result.stack).toBe('CUSTOM_STACK');
-        });
-
-        it('preserves original stack if normalization lost it and originalStack not provided', () => {
+        it('preserves original stack even through normalization', () => {
             class MyError extends Error {
                 constructor() {
                     super('my error');
@@ -250,18 +233,18 @@ describe('stderr', () => {
             expect(err.code).toBe('E_CODE');
         });
 
-        it('copies non-enumerable properties when includeNonEnumerable is true', () => {
+        it('copies non-enumerable properties by default', () => {
             const obj: ErrorRecord = { message: 'm' };
             Object.defineProperty(obj, 'hidden', { value: 42, enumerable: false });
-            const err = stderr<ErrorRecord>(obj, { includeNonEnumerable: true });
+            const err = stderr<ErrorRecord>(obj);
             expect(err.hidden).toBe(42);
         });
 
-        it('ignores non-enumerable properties by default', () => {
+        it('skips functions even if non-enumerable', () => {
             const obj: ErrorRecord = { message: 'm' };
-            Object.defineProperty(obj, 'hidden', { value: 42, enumerable: false });
+            Object.defineProperty(obj, 'fn', { value: () => 'test', enumerable: false });
             const err = stderr(obj);
-            expect((err as unknown as { hidden: unknown }).hidden).toBeUndefined();
+            expect((err as unknown as { fn: unknown }).fn).toBeUndefined();
         });
 
         it('copies symbol-keyed properties', () => {

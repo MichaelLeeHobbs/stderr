@@ -99,15 +99,37 @@ describe('stderr (extra coverage for uncovered branches)', () => {
         expect(err.errors.length).toBe(2);
     });
 
-    it('stringifies function values in metadata via normalizeUnknown fallback', () => {
+    it('skips function properties in metadata', () => {
         const fn = function demo() {
             return 'x';
         };
-        const input = { message: 'm', data: fn };
-        const err = stderr<ErrorShape & { data: string }>(input);
+        const input = { message: 'm', data: fn, other: 'value' };
+        const err = stderr<ErrorShape & { data?: unknown; other: string }>(input);
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('m');
-        expect(typeof err.data).toBe('string');
-        expect(err.data).toMatch(/function\s+demo|\(\)\s*=>/);
+        expect(err.data).toBeUndefined(); // Functions are skipped
+        expect(err.other).toBe('value'); // Other properties are preserved
+    });
+
+    it('skips enumerable function properties', () => {
+        const input = { message: 'test', method: () => 'result', value: 42 };
+        const err = stderr<ErrorShape & { method?: unknown; value: number }>(input);
+        expect(err.method).toBeUndefined(); // Function skipped
+        expect(err.value).toBe(42); // Non-function preserved
+    });
+
+    it('skips non-enumerable function properties', () => {
+        const input: ErrorRecord = { message: 'test' };
+        Object.defineProperty(input, 'hiddenFn', {
+            value: function () {
+                return 'hidden';
+            },
+            enumerable: false,
+        });
+        Object.defineProperty(input, 'hiddenData', { value: 'data', enumerable: false });
+
+        const err = stderr<ErrorShape & { hiddenFn?: unknown; hiddenData?: string }>(input);
+        expect(err.hiddenFn).toBeUndefined(); // Function skipped even if non-enumerable
+        expect(err.hiddenData).toBe('data'); // Non-function non-enumerable preserved
     });
 });

@@ -11,10 +11,25 @@ export type ErrorRecord = Dictionary;
 export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
 /**
- * ErrorShape represents the structure of standardized errors.
- * This is the base interface that all normalized errors conform to.
+ * ErrorShape represents the structural interface for standardized errors.
+ * This type defines what error-like objects should look like, regardless of their actual class.
  *
- * @see StdError - The concrete class implementation of ErrorShape
+ * ErrorShape is intentionally kept as a structural type (not just StdError) because:
+ * - It allows duck-typing: any object with these properties is error-shaped
+ * - Internal methods can format/serialize Error, StdError, or plain error objects uniformly
+ * - The isErrorShaped() type guard works structurally, not via instanceof
+ * - Provides flexibility when working with errors from external sources
+ *
+ * @see StdError - The concrete class implementation that implements ErrorShape
+ * @see isErrorShaped - Type guard to check if an object matches this shape
+ *
+ * @example
+ * ```typescript
+ * // All of these are ErrorShape:
+ * const stdErr: ErrorShape = new StdError('message');
+ * const nativeErr: ErrorShape = new Error('message');
+ * const plainErr: ErrorShape = { name: 'Error', message: 'msg' };
+ * ```
  */
 export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     /** Error name - optional to reflect real world */
@@ -30,7 +45,16 @@ export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     [key: symbol]: unknown;
 };
 
+/**
+ * ErrorShape with errors guaranteed to be an array of ErrorShape objects.
+ * Used for AggregateError-style errors with multiple sub-errors.
+ */
 export type ErrorShapeWithErrorsArray = WithRequiredType<ErrorShape, 'errors', ErrorShape[]>;
+
+/**
+ * ErrorShape with errors as a keyed object/dictionary of errors.
+ * Used for non-standard error collections with named errors.
+ */
 export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', Dictionary>;
 
 /* Helper Types */
@@ -57,9 +81,6 @@ export const isSymbol = (input: unknown): input is symbol => typeof input === 's
 /** Narrow object-only values (not functions). */
 export const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
-/** Alias for clarity in some places. */
-export const isObjectLike = isObject;
-
 export const isErrorInstance = (v: unknown): v is Error => v instanceof Error;
 
 export const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined | symbol | bigint => {
@@ -67,7 +88,7 @@ export const isPrimitive = (value: unknown): value is string | number | boolean 
 };
 
 export const isErrorShaped = (input: unknown): input is ErrorShape => {
-    if (!isObjectLike(input)) return false;
+    if (!isObject(input)) return false;
     if (isErrorInstance(input)) return true; // fast path for real Error
     const keys = Reflect.ownKeys(input);
     // Any of the common Error-ish fields present counts as "error-shaped"
