@@ -1,5 +1,4 @@
-// src/tryCatch.ts
-// This is the legacy promise-only tryCatch - will be replaced by tryCatchAsync in Phase 3
+// src/tryCatchAsync.ts
 import { stderr } from './stderr';
 import { StdError } from './StdError';
 
@@ -15,6 +14,7 @@ type Failure<E> = { ok: false; data: null; error: E };
 
 /**
  * Result discriminated union that represents either success or failure.
+ * Follows the Result Pattern from TypeScript Coding Standards (Rule 6.2).
  */
 export type Result<T, E = StdError> = Success<T> | Failure<E>;
 
@@ -24,6 +24,8 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
  * All caught errors are first normalized via `stderr()` to ensure consistent error handling,
  * then optionally transformed via `mapError`.
  *
+ * This follows the Result Pattern (Rule 6.2) and ensures no floating promises (Rule 4.1).
+ *
  * @template T - The type of the success value
  * @template E - The type of the error value (defaults to `StdError`)
  * @param promise - The promise to wrap
@@ -32,7 +34,7 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
  *
  * @example
  * // Basic usage with type narrowing
- * const result = await tryCatch(fetch('/api/data'));
+ * const result = await tryCatchAsync(fetch('/api/data'));
  * if (!result.ok) {
  *   console.error('Failed:', result.error.toString());
  *   return;
@@ -41,16 +43,27 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
  * console.log('Success:', result.data);
  *
  * @example
+ * // With error transformation
+ * const result = await tryCatchAsync(
+ *   fetch('/api/data'),
+ *   (stdErr) => ({ code: stdErr.name, message: stdErr.message })
+ * );
+ * if (!result.ok) {
+ *   console.error('Code:', result.error.code);
+ *   return;
+ * }
+ *
+ * @example
  * // Chaining operations with full type safety
- * const r1 = await tryCatch(getNumber());
+ * const r1 = await tryCatchAsync(getNumber());
  * if (!r1.ok) return;
  *
- * const r2 = await tryCatch(double(r1.data)); // r1.data is number
+ * const r2 = await tryCatchAsync(double(r1.data)); // r1.data is number
  * if (!r2.ok) return;
  *
  * console.log(r2.data); // r2.data is number
  */
-export async function tryCatch<T, E = StdError>(promise: Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>> {
+export async function tryCatchAsync<T, E = StdError>(promise: Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>> {
     try {
         const data = await promise;
         return { ok: true, data, error: null };

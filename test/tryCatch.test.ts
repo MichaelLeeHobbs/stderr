@@ -54,7 +54,9 @@ describe('tryCatch', () => {
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBe(expectedError);
+                // Error is now normalized via stderr, so it's a StdError
+                expect(result.error).toBeInstanceOf(Error);
+                expect(result.error.message).toBe('failure');
                 expect(result.data).toBeNull();
             }
         });
@@ -65,7 +67,9 @@ describe('tryCatch', () => {
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBe('string error');
+                // String is normalized to StdError
+                expect(result.error).toBeInstanceOf(Error);
+                expect(result.error.message).toBe('string error');
             }
         });
 
@@ -75,7 +79,9 @@ describe('tryCatch', () => {
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeNull();
+                // Null is normalized to StdError with message 'Unknown error (Null)'
+                expect(result.error).toBeInstanceOf(Error);
+                expect(result.error.message).toBe('Unknown error (Null)');
             }
         });
 
@@ -85,7 +91,9 @@ describe('tryCatch', () => {
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
-                expect(result.error).toBeUndefined();
+                // Undefined is normalized to StdError with message 'Unknown error (Undefined)'
+                expect(result.error).toBeInstanceOf(Error);
+                expect(result.error.message).toBe('Unknown error (Undefined)');
             }
         });
     });
@@ -131,9 +139,10 @@ describe('tryCatch', () => {
                 details: string;
             }
 
-            const mapError = (err: unknown): CustomError => ({
+            // mapError now receives normalized StdError, not raw unknown
+            const mapError = (stdErr: Error): CustomError => ({
                 code: 'CUSTOM',
-                details: String(err),
+                details: stdErr.message, // StdError has message property
             });
 
             const promise = Promise.reject('something went wrong');

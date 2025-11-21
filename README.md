@@ -5,11 +5,49 @@
 [![npm version](https://img.shields.io/npm/v/stderr.svg)](https://www.npmjs.com/package/stderr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+## 🚨 Breaking Changes in v2.0
+
+**v2.0 introduces `StdError` class with built-in comprehensive `toString()` and `toJSON()` methods.**
+
+### Removed Features
+
+1. **`errorToJson()` function removed** - Use `StdError.toJSON()` or `JSON.stringify()` instead
+2. **`patchToString` option removed** - StdError automatically has comprehensive `toString()`
+3. **`enableSubclassing` option removed** - All errors return as `StdError` instances
+
+### Migration Guide
+
+**Before (v1.x)**:
+```javascript
+import { stderr, errorToJson } from 'stderr-lib';
+
+const err = stderr(error, { patchToString: true });
+console.log(err.toString()); // Comprehensive output
+const json = errorToJson(err); // Serialize to JSON
+```
+
+**After (v2.0)**:
+```javascript
+import { stderr } from 'stderr-lib';
+
+const err = stderr(error); // Returns StdError instance
+console.log(err.toString()); // Comprehensive output automatically!
+const json = JSON.stringify(err); // Built-in toJSON() method!
+```
+
+**What You Get:**
+- ✅ Cleaner API - no options needed for most cases
+- ✅ Automatic comprehensive `toString()` - always includes cause, errors, custom properties
+- ✅ Automatic `toJSON()` - works with `JSON.stringify()` out of the box
+- ✅ Smaller bundle size (21KB vs 23KB)
+
+---
+
 ## Why stderr?
 
 **The Problem:** JavaScript errors come in all shapes and sizes. A `fetch` error might have a `cause` property. A Mongoose validation error has an `errors` object. A Sequelize error has nested `original` and `parent` properties. When you `console.log` these errors, you often miss critical debugging information hidden in non-enumerable properties or nested structures.
 
-**The Solution:** `stderr` normalizes ANY error-like value into a consistent Error format and ensures you can log EVERYTHING with a simple `.toString()` call.
+**The Solution:** `stderr` normalizes ANY error-like value into a consistent `StdError` format with comprehensive logging built-in.
 
 ```javascript
 // Before stderr - Missing critical error details
@@ -24,8 +62,9 @@ try {
 try {
   await problematicOperation();
 } catch (e) {
-  const err = stderr(e, { patchToString: true });
+  const err = stderr(e); // Returns StdError instance
   console.log(err.toString()); // Full error with cause chain, all properties, nested errors!
+  console.log(JSON.stringify(err)); // Everything serialized automatically!
   logger.error('Operation failed', err); // Your logger now captures EVERYTHING
 }
 ```
@@ -59,33 +98,24 @@ someLibrary.doSomething().catch(e => {
 // Solution: stderr handles ALL of these
 import { stderr } from 'stderr-lib';
 
-// Configure once at app startup for convenience
-stderr.patchToString = true;  // Enable enhanced toString() globally
-
-// Now just use stderr() - toString() is automatically enhanced!
+// Just use stderr() - toString() is automatically comprehensive!
 try {
     await problematicOperation();
 } catch (e) {
-    const normalizedError = stderr(e);  // No need to pass options every time
+    const normalizedError = stderr(e);  // Returns StdError with built-in toString()
     logger.error(normalizedError.toString()); // EVERYTHING is logged!
+    // Or just pass it directly - most loggers call toString() automatically
+    logger.error('Operation failed:', normalizedError);
 }
-
-// Or if you prefer per-call configuration
-const normalizedError = stderr(weirdError, { patchToString: true });
 ```
 
-## The Power of toString()
+## The Power of Automatic toString()
 
-The killer feature of `stderr` is the enhanced `toString()` method when using `patchToString: true`:
+The killer feature of `stderr` is that all returned `StdError` instances have comprehensive `toString()` built-in:
 
 ```javascript
 import { stderr } from 'stderr-lib';
 
-// Option 1: Configure globally (recommended for most apps)
-stderr.patchToString = true;  // Set once at app initialization
-
-// Option 2: Configure per-call
-// const normalized = stderr(error, { patchToString: true });
 
 // Complex error with cause chain and metadata
 const error = {
@@ -172,7 +202,7 @@ import { stderr } from 'stderr-lib';
 
 // The pattern you'll use everywhere
 function safeErrorLog(error, logger = console) {
-  const normalized = stderr(error, { patchToString: true });
+  const normalized = stderr(error); // Returns StdError with comprehensive toString()
   logger.error(normalized.toString());
   return normalized;
 }
@@ -182,16 +212,16 @@ try {
   await riskyOperation();
 } catch (e) {
   const err = safeErrorLog(e, logger);
-  // err is now a normalized Error with ALL information preserved
+  // err is now a StdError with ALL information preserved
 }
 
-// Works with any logger
+// Works with any logger - automatic serialization
 app.use((err, req, res, next) => {
-  const normalized = stderr(err, { patchToString: true });
+  const normalized = stderr(err);
   winston.error('Request failed', {
     error: normalized.toString(),
     stack: normalized.stack,
-    metadata: errorToJson(normalized)
+    metadata: normalized.toJSON() // Built-in JSON serialization
   });
 });
 ```
@@ -289,24 +319,29 @@ const normalized = stderr(mongooseError, { patchToString: true });
 ### JSON Serialization
 
 ```typescript
-import { errorToJson } from 'stderr-lib';
+import { stderr } from 'stderr-lib';
 
 const err = new Error('Failed');
 err.cause = new Error('Root cause');
-err.customData = { userId: 123 };
+(err as Error & { customData: unknown }).customData = { userId: 123 };
 
-const json = errorToJson(err);
-// Returns a JSON-safe object with all error properties
-console.log(JSON.stringify(json, null, 2));
+// StdError has built-in toJSON() - just use JSON.stringify()!
+const normalized = stderr(err);
+const json = JSON.stringify(normalized, null, 2);
+console.log(json);
+// Output includes all error properties, cause chain, everything!
 
 // Perfect for sending errors to logging services
 fetch('/api/log', {
   method: 'POST',
   body: JSON.stringify({
-    error: errorToJson(err),
+    error: normalized, // toJSON() called automatically
     timestamp: new Date().toISOString()
   })
 });
+
+// Or use the toJSON() method directly
+const jsonObj = normalized.toJSON();
 ```
 
 ### Try-Catch Wrapper with Type Safety
@@ -419,24 +454,20 @@ const err = stderr(input, {
   // Include non-enumerable properties (default: false)
   includeNonEnumerable: false,
   
-  // Preserve Error subclasses (default: false)
-  enableSubclassing: false,
-  
   // Use native AggregateError when available (default: true)
   useAggregateError: true,
   
   // Use native Error cause when available (default: true)
-  useCauseError: true,
-  
-  // Override toString() for complete error visibility (default: false)
-  // THIS IS THE KILLER FEATURE FOR LOGGING!
-  patchToString: true
+  useCauseError: true
 });
 
 // You can also set defaults globally
-stderr.patchToString = true; // Always patch toString()
 stderr.maxDepth = 10; // Deeper recursion for complex errors
+stderr.includeNonEnumerable = true; // Include non-enumerable properties
 ```
+
+**Note**: `patchToString` and `enableSubclassing` options have been removed in v2.0.
+StdError automatically has comprehensive `toString()` and `toJSON()` methods.
 
 ## API
 
@@ -448,33 +479,55 @@ Normalizes any input value to a standard Error instance.
 - `input: unknown` - Any value to normalize
 - `options?: NormalizeOptions` - Optional configuration
 
-**Returns:** `ErrorShape` - Normalized error instance
+**Returns:** `StdError` - Normalized error instance with comprehensive `toString()` and `toJSON()` methods
 
-### `errorToJson(error, options?)`
-
-Converts an Error instance to a JSON-safe object.
-
-**Parameters:**
-- `error: ErrorShape` - Error to serialize
-- `options?: { maxDepth?: number }` - Optional configuration
-
-**Returns:** `ErrorShape` - JSON-safe error object
-
-### `tryCatch<T, E>(promise, mapError?)`
+### `tryCatchAsync<T, E>(promise, mapError?)`
 
 Wraps a Promise to always resolve with a discriminated union result object for superior type safety.
 
 **Generic Parameters:**
-- `T` - The type of the success value (inferred from promise or explicitly set)
-- `E` - The type of the error value (defaults to `unknown`)
+- `T` - The type of the success value (inferred from promise)
+- `E` - The type of the error value (defaults to `StdError`)
 
 **Parameters:**
 - `promise: Promise<T>` - Promise to wrap
-- `mapError?: (error: unknown) => E` - Optional error transformer
+- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
 
 **Returns:** `Promise<Result<T, E>>` - Result object with either:
 - `{ ok: true, data: T, error: null }` on success
 - `{ ok: false, data: null, error: E }` on failure
+
+### `tryCatch<T, E>(promise, mapError?)`
+
+Wraps a Promise to always resolve with a discriminated union result object for superior type safety.
+All errors are normalized via `stderr()` before being passed to `mapError`.
+
+**Generic Parameters:**
+- `T` - The type of the success value (inferred from promise)
+- `E` - The type of the error value (defaults to `StdError`)
+
+**Parameters:**
+- `promise: Promise<T>` - Promise to wrap
+- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
+
+**Returns:** `Promise<Result<T, E>>` - Result object with either:
+- `{ ok: true, data: T, error: null }` on success
+- `{ ok: false, data: null, error: E }` on failure
+
+### `tryCatchStdErr<T, E>(fn, mapError?)`
+
+Wraps a synchronous or asynchronous function to always return a Result object.
+All errors are normalized via `stderr()` before being passed to `mapError`.
+
+**Generic Parameters:**
+- `T` - The type of the success value
+- `E` - The type of the error value (defaults to `StdError`)
+
+**Parameters:**
+- `fn: () => T | Promise<T>` - Function to execute (sync or async)
+- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
+
+**Returns:** `Result<T, E>` for sync functions, `Promise<Result<T, E>>` for async functions
 
 ## Type Definitions
 

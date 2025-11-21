@@ -1,6 +1,6 @@
 // src/tryCatchStdErr.ts
 import { stderr } from './stderr';
-import type { ErrorShape } from './types';
+import { StdError } from './StdError';
 
 /**
  * Represents a successful outcome with data
@@ -8,21 +8,32 @@ import type { ErrorShape } from './types';
 type Success<T> = { ok: true; data: T; error: null };
 
 /**
- * Represents a failed outcome with a standardized Error
+ * Represents a failed outcome with error
  */
-type Failure = { ok: false; data: null; error: ErrorShape };
+type Failure<E> = { ok: false; data: null; error: E };
 
 /**
- * Result discriminated union that always has Error type for failures
+ * Result discriminated union that represents either success or failure.
+ * Follows the Result Pattern from TypeScript Coding Standards (Rule 6.2).
  */
-type Result<T> = Success<T> | Failure;
+export type Result<T, E = StdError> = Success<T> | Failure<E>;
 
 /**
  * Wraps a function (sync or async) to always return a Result object with standardized errors.
- * Unlike `tryCatch`, failures are always normalized via `stderr()` with patched `toString()` for rich inspection.
+ *
+ * All caught errors are first normalized via `stderr()` to StdError,
+ * then optionally transformed via `mapError`.
  *
  * Overloads provide precise typing: synchronous functions yield a synchronous Result, while
  * asynchronous functions yield a Promise<Result>.
+ *
+ * This follows the Result Pattern (Rule 6.2) and ensures consistent error handling.
+ *
+ * @template T - The type of the success value
+ * @template E - The type of the error value (defaults to `StdError`)
+ * @param fn - The function to execute (sync or async)
+ * @param mapError - Optional function to transform normalized StdError into type E
+ * @returns Result<T, E> for sync functions, Promise<Result<T, E>> for async functions
  *
  * @example
  * // Synchronous usage
@@ -30,7 +41,7 @@ type Result<T> = Success<T> | Failure;
  * if (r1.ok) {
  *   console.log(r1.data); // 42
  * } else {
- *   console.error(r1.error);
+ *   console.error(r1.error.toString());
  * }
  *
  * @example
@@ -39,21 +50,34 @@ type Result<T> = Success<T> | Failure;
  * if (!r2.ok) {
  *   console.error(r2.error.toString());
  * }
+ *
+ * @example
+ * // With error transformation
+ * const r3 = tryCatchStdErr(
+ *   () => riskyOperation(),
+ *   (stdErr) => ({ code: stdErr.name, details: stdErr.message })
+ * );
+ * if (!r3.ok) {
+ *   console.error('Code:', r3.error.code);
+ * }
  */
-export function tryCatchStdErr<T>(fn: () => T): Result<T>;
-export function tryCatchStdErr<T>(fn: () => Promise<T>): Promise<Result<T>>;
-export function tryCatchStdErr<T>(fn: () => T | Promise<T>): Result<T> | Promise<Result<T>> {
+export function tryCatchStdErr<T, E = StdError>(fn: () => T, mapError?: (normalizedError: StdError) => E): Result<T, E>;
+export function tryCatchStdErr<T, E = StdError>(fn: () => Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
+export function tryCatchStdErr<T, E = StdError>(fn: () => T | Promise<T>, mapError?: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>> {
     try {
         const value = fn();
         // Detect promise-like (duck-typing for thenable)
         if (value && typeof (value as { then?: unknown }).then === 'function') {
             // Wrap in async IIFE to preserve literal discriminants
-            return (async (): Promise<Result<T>> => {
+            return (async (): Promise<Result<T, E>> => {
                 try {
                     const data = (await value) as Promise<T> as T;
                     return { ok: true as const, data, error: null };
                 } catch (error) {
-                    const finalError = stderr(error);
+                    // Always normalize via stderr first
+                    const normalizedError = stderr(error);
+                    // Then optionally transform
+                    const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
                     return { ok: false as const, data: null, error: finalError };
                 }
             })();
@@ -61,7 +85,10 @@ export function tryCatchStdErr<T>(fn: () => T | Promise<T>): Result<T> | Promise
         // Sync success path
         return { ok: true as const, data: value as T, error: null };
     } catch (error) {
-        const finalError = stderr(error);
+        // Always normalize via stderr first
+        const normalizedError = stderr(error);
+        // Then optionally transform
+        const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
         return { ok: false as const, data: null, error: finalError };
     }
 }
