@@ -74,10 +74,7 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
  * @returns Depth limit message or null
  */
 export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): string | null {
-    if (depth >= maxDepth) {
-        return `${indent}[Max depth of ${maxDepth} reached]`;
-    }
-    return null;
+    return depth >= maxDepth ? `${indent}[Max depth of ${maxDepth} reached]` : null;
 }
 
 /**
@@ -90,10 +87,7 @@ export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): s
  * @returns Circular reference message or null
  */
 export function checkCircular(value: unknown, seen: WeakSet<object>, indent = ''): string | null {
-    if (isObject(value) && seen.has(value as object)) {
-        return `${indent}[Circular]`;
-    }
-    return null;
+    return isObject(value) && seen.has(value as object) ? `${indent}[Circular]` : null;
 }
 
 /**
@@ -104,9 +98,7 @@ export function checkCircular(value: unknown, seen: WeakSet<object>, indent = ''
  * @param seen - WeakSet tracking seen objects
  */
 export function trackSeen(value: unknown, seen: WeakSet<object>): void {
-    if (isObject(value)) {
-        seen.add(value as object);
-    }
+    if (isObject(value)) seen.add(value as object);
 }
 
 export const unknownToString = (input: unknown): string => {

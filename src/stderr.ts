@@ -159,110 +159,146 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
     return String(input);
 };
 
+/**
+ * Normalizes the cause property of an error object.
+ * Returns undefined if cause is null or undefined.
+ */
+const normalizeCause = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape | undefined => {
+    if (input.cause === undefined || input.cause === null) {
+        return undefined;
+    }
+
+    const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
+
+    if (isErrorShaped(normalizedCause)) {
+        return normalizedCause as ErrorShape;
+    }
+    if (isPrimitive(normalizedCause)) {
+        return primitiveToError(normalizedCause);
+    }
+    if (isObject(normalizedCause)) {
+        return normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
+    }
+
+    return undefined;
+};
+
+/**
+ * Normalizes an errors array property.
+ * Handles array length bounds and converts each item to ErrorShape.
+ */
+const normalizeErrorsArray = (errorsArray: unknown[], opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
+    const boundedErrors = errorsArray.slice(0, MAX_ARRAY_LENGTH);
+    if (errorsArray.length > MAX_ARRAY_LENGTH) {
+        console.warn(`Errors array length (${errorsArray.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
+    }
+
+    return boundedErrors
+        .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
+        .map(ne => {
+            if (isErrorShaped(ne)) return ne as ErrorShape;
+            if (isPrimitive(ne)) return primitiveToError(ne);
+            if (isObject(ne)) return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
+            /* node:coverage ignore next */
+            return null;
+        })
+        .filter((ne): ne is ErrorShape => ne !== null);
+};
+
+/**
+ * Normalizes a single error value into an array with one ErrorShape.
+ */
+const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
+    const normalizedError = normalizeUnknown(errorValue, opts, depth + 1, seen);
+
+    if (isErrorShaped(normalizedError)) {
+        return [normalizedError as ErrorShape];
+    }
+    if (isPrimitive(normalizedError)) {
+        return [primitiveToError(normalizedError)];
+    }
+    if (isObject(normalizedError)) {
+        return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
+    }
+    /* node:coverage ignore next 2 */
+    return [];
+};
+
+/**
+ * Normalizes an errors object (key-value map of errors).
+ * Handles property count bounds.
+ */
+const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorRecord => {
+    const normalizedErrors: ErrorRecord = {};
+    const errorKeys = getCustomKeys(errorsObj, {
+        includeNonEnumerable: true,
+        excludeKeys: new Set(),
+    });
+
+    // Enforce loop bound
+    const boundedErrorKeys = errorKeys.slice(0, MAX_PROPERTIES);
+    if (errorKeys.length > MAX_PROPERTIES) {
+        console.warn(`Error property count (${errorKeys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
+    }
+
+    for (const key of boundedErrorKeys) {
+        const keyStr = key.toString();
+        const value = (errorsObj as Dictionary)[key as keyof typeof errorsObj];
+
+        // Skip functions in error maps
+        if (typeof value === 'function') continue;
+
+        const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
+
+        if (isErrorShaped(normalizedValue)) {
+            normalizedErrors[keyStr] = normalizedValue as ErrorShape;
+        } else if (isPrimitive(normalizedValue)) {
+            normalizedErrors[keyStr] = primitiveToError(normalizedValue);
+        } else if (isObject(normalizedValue)) {
+            normalizedErrors[keyStr] = normalizeObjectToError(normalizedValue as ErrorRecord, opts, depth + 1, seen);
+        }
+    }
+
+    return normalizedErrors;
+};
+
 normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
     // Depth check for Error normalization
-    if (depth >= opts.maxDepth) return new StdError(`[Max depth of ${opts.maxDepth} reached]`, { maxDepth: opts.maxDepth });
+    if (depth >= opts.maxDepth) {
+        return new StdError(`[Max depth of ${opts.maxDepth} reached]`, { maxDepth: opts.maxDepth });
+    }
 
     const errorShape: Partial<ErrorShape> = {};
 
-    // Cause
-    if (input.cause !== undefined && input.cause !== null) {
-        const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
-        if (isErrorShaped(normalizedCause)) errorShape.cause = normalizedCause as ErrorShape;
-        else if (isPrimitive(normalizedCause)) errorShape.cause = primitiveToError(normalizedCause);
-        else if (isObject(normalizedCause)) errorShape.cause = normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
-    }
+    // Normalize cause using helper
+    errorShape.cause = normalizeCause(input, opts, depth, seen);
 
-    // Errors (shape detection)
+    // Normalize errors property based on its type
     type AggregateMode = 'none' | 'array' | 'single';
     let aggregateMode: AggregateMode = 'none';
 
     if (isArray(input.errors)) {
         aggregateMode = 'array';
-
-        const errorsArray = input.errors as unknown[];
-        const boundedErrors = errorsArray.slice(0, MAX_ARRAY_LENGTH);
-        if (errorsArray.length > MAX_ARRAY_LENGTH) {
-            console.warn(`Errors array length (${errorsArray.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
-        }
-
-        errorShape.errors = boundedErrors
-            .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
-            .map(ne => {
-                if (isErrorShaped(ne)) return ne as ErrorShape;
-                if (isPrimitive(ne)) return primitiveToError(ne);
-                if (isObject(ne)) return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
-                /* node:coverage ignore next */
-                return null;
-            })
-            .filter(ne => ne !== null) as ErrorShape[];
+        errorShape.errors = normalizeErrorsArray(input.errors as unknown[], opts, depth, seen);
     } else if (isErrorShaped(input.errors)) {
-        // Single Error instance -> treat as "single" AggregateError
         aggregateMode = 'single';
-        const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
-        if (isErrorShaped(normalizedSingleError)) {
-            errorShape.errors = [normalizedSingleError as ErrorShape];
-        } /* node:coverage ignore next 2 */ else if (isPrimitive(normalizedSingleError)) {
-            errorShape.errors = [primitiveToError(normalizedSingleError)];
-        } /* node:coverage ignore next 2 */ else if (isObject(normalizedSingleError)) {
-            errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
-        } /* node:coverage ignore next 2 */ else {
-            errorShape.errors = [];
-        }
+        errorShape.errors = normalizeErrorsSingle(input.errors, opts, depth, seen);
     } else if (isObject(input.errors)) {
-        // Non-standard object map of errors
-        const normalizedErrors: ErrorRecord = {};
-        // Always include non-enumerable for complete error capture
-        const errorKeys = getCustomKeys(input.errors as object, {
-            includeNonEnumerable: true,
-            excludeKeys: new Set(),
-        });
-
-        // Enforce loop bound
-        const boundedErrorKeys = errorKeys.slice(0, MAX_PROPERTIES);
-        if (errorKeys.length > MAX_PROPERTIES) {
-            console.warn(`Error property count (${errorKeys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
-        }
-
-        for (const key of boundedErrorKeys) {
-            const keyStr = key.toString();
-            const value = (input.errors as Dictionary)[key as keyof typeof input.errors];
-
-            // Skip functions in error maps
-            if (typeof value === 'function') continue;
-
-            const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
-
-            if (isErrorShaped(normalizedValue)) normalizedErrors[keyStr] = normalizedValue as ErrorShape;
-            else if (isPrimitive(normalizedValue)) normalizedErrors[keyStr] = primitiveToError(normalizedValue);
-            else if (isObject(normalizedValue)) normalizedErrors[keyStr] = normalizeObjectToError(normalizedValue as ErrorRecord, opts, depth + 1, seen);
-        }
-        errorShape.errors = normalizedErrors;
+        errorShape.errors = normalizeErrorsObject(input.errors as object, opts, depth, seen);
     } else if (input.errors !== undefined && input.errors !== null) {
-        // Single non-array/non-object -> AggregateError with one item
         aggregateMode = 'single';
-        const normalizedSingleError = normalizeUnknown(input.errors, opts, depth + 1, seen);
-        /* node:coverage ignore next 2 */
-        if (isErrorShaped(normalizedSingleError)) {
-            errorShape.errors = [normalizedSingleError as ErrorShape];
-        } else if (isPrimitive(normalizedSingleError)) {
-            errorShape.errors = [primitiveToError(normalizedSingleError)];
-        } /* node:coverage ignore next 2 */ else if (isObject(normalizedSingleError)) {
-            errorShape.errors = [normalizeObjectToError(normalizedSingleError as ErrorRecord, opts, depth + 1, seen)];
-        } /* node:coverage ignore next 2 */ else {
-            errorShape.errors = [];
-        }
+        errorShape.errors = normalizeErrorsSingle(input.errors, opts, depth, seen);
     }
 
-    // Name and Message (shape-aware)
+    // Compute final name based on aggregate mode
     const computeFinalName = (): string => {
         if (aggregateMode === 'single') return input.name ? unknownToString(input.name) : 'AggregateError';
         if (aggregateMode === 'array') return input.name ? unknownToString(input.name) : 'Error';
         return input.name ? unknownToString(input.name) : 'Error';
     };
 
+    // Compute final message
     const computeFinalMessage = (): string => {
-        // Tests require overriding any provided message for single-value errors
         if (aggregateMode === 'single') return 'AggregateError';
         if (input.message !== undefined && input.message !== null) {
             return isObject(input.message) ? unknownToString(normalizeUnknown(input.message, opts, depth + 1, seen)) : unknownToString(input.message);
