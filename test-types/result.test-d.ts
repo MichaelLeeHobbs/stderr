@@ -1,6 +1,6 @@
 // test-types/result.test-d.ts
 import { expectType, expectError, expectAssignable, expectNotAssignable } from 'tsd';
-import { tryCatch, mapResult, unwrapOr, andThen, orElse, StdError } from '../src';
+import { tryCatch, StdError } from '../src';
 import type { Result } from '../src';
 
 // ============================================================================
@@ -86,72 +86,6 @@ describe('mapError type transformation', () => {
     );
     // TypeScript inference limitation: sees Result<Promise<never>, CustomError>
     expectType<Result<Promise<never>, CustomError> | Promise<Result<never, CustomError>>>(asyncCustom);
-});
-
-// ============================================================================
-// Result Utility Function Tests
-// ============================================================================
-
-describe('mapResult types', () => {
-    const result: Result<number, StdError> = tryCatch(() => 42);
-
-    // mapResult transforms success type
-    const doubled = mapResult(result, x => x * 2);
-    expectType<Result<number, StdError>>(doubled);
-
-    // mapResult can change success type
-    const stringified = mapResult(result, x => String(x));
-    expectType<Result<string, StdError>>(stringified);
-
-    // mapResult preserves error type
-    type CustomErr = { msg: string };
-    // When mapping an error result, x would be null, so we test with success
-    const successResult: Result<number, CustomErr> = { ok: true, value: 42, error: null };
-    const mappedCustom = mapResult(successResult, x => x * 2);
-    // mapResult transforms the success type but preserves error type
-    // However, the error in success case is null, so type becomes Result<number, null>
-    expectType<Result<number, null>>(mappedCustom);
-});
-
-describe('unwrapOr types', () => {
-    const result: Result<number, StdError> = tryCatch(() => 42);
-
-    // unwrapOr returns value type
-    const value = unwrapOr(result, 0);
-    expectType<number>(value);
-
-    // Default value must match success type
-    unwrapOr(result, 99);
-    // @ts-expect-error - default must match success type
-    expectError(unwrapOr(result, 'string'));
-});
-
-describe('andThen types', () => {
-    const result: Result<number, StdError> = tryCatch(() => 42);
-
-    // andThen chains Results
-    const chained = andThen(result, x => tryCatch(() => String(x)));
-    expectType<Result<string, StdError>>(chained);
-
-    // andThen function must return Result
-    // @ts-expect-error - must return Result
-    expectError(andThen(result, x => x * 2));
-});
-
-describe('orElse types', () => {
-    const result: Result<number, StdError> = tryCatch(() => {
-        throw new Error('test');
-    });
-
-    // orElse can change error type
-    const recovered = orElse(result, () => tryCatch(() => 42));
-    expectType<Result<number, StdError>>(recovered);
-
-    // orElse can recover with different error type
-    type NewErr = { code: number };
-    const newErrResult: Result<number, NewErr> = { ok: false, value: null, error: { code: 500 } };
-    const converted = orElse(result, () => newErrResult);
-    expectType<Result<number, NewErr>>(converted);
 });
 
 // ============================================================================

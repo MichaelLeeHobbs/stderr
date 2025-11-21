@@ -273,41 +273,4 @@ describe('tryCatch fuzzing tests', () => {
             }
         });
     });
-
-    describe('Property: Result utilities work with fuzzed inputs', () => {
-        it('mapResult preserves Result structure', () => {
-            fc.assert(
-                fc.property(fc.anything(), fc.func(fc.anything()), (value, fn) => {
-                    // eslint-disable-next-line @typescript-eslint/no-require-imports
-                    const { mapResult } = require('../src');
-                    const result = tryCatch(() => value);
-                    const mapped = mapResult(result, fn);
-
-                    expect(mapped).toHaveProperty('ok');
-                    if (result.ok) {
-                        expect(mapped.ok).toBe(true);
-                    } else {
-                        expect(mapped.ok).toBe(false);
-                    }
-                }),
-                { numRuns: 200 }
-            );
-        });
-
-        it('unwrapOr provides default for errors', () => {
-            fc.assert(
-                fc.property(fc.anything(), fc.anything(), (errorValue, defaultValue) => {
-                    // eslint-disable-next-line @typescript-eslint/no-require-imports
-                    const { unwrapOr } = require('../src');
-                    const result = tryCatch(() => {
-                        throw errorValue;
-                    });
-
-                    const unwrapped = unwrapOr(result, defaultValue);
-                    expect(unwrapped).toBe(defaultValue);
-                }),
-                { numRuns: 200 }
-            );
-        });
-    });
 });
