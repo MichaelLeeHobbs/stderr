@@ -233,9 +233,7 @@ export class StdError extends Error implements ErrorShape {
         const depthMsg = checkDepthLimit(depth, maxDepth);
         if (depthMsg) return depthMsg;
 
-        if (isErrorShaped(cause)) {
-            return this.formatError(cause as ErrorShape, depth, seen);
-        }
+        if (isErrorShaped(cause)) return this.formatError(cause as ErrorShape, depth, seen);
 
         return this.formatValue(cause, depth, seen);
     }

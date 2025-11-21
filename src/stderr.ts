@@ -164,21 +164,12 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
  * Returns undefined if cause is null or undefined.
  */
 const normalizeCause = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape | undefined => {
-    if (input.cause === undefined || input.cause === null) {
-        return undefined;
-    }
+    if (input.cause === undefined || input.cause === null) return undefined;
 
     const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
-
-    if (isErrorShaped(normalizedCause)) {
-        return normalizedCause as ErrorShape;
-    }
-    if (isPrimitive(normalizedCause)) {
-        return primitiveToError(normalizedCause);
-    }
-    if (isObject(normalizedCause)) {
-        return normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
-    }
+    if (isErrorShaped(normalizedCause)) return normalizedCause as ErrorShape;
+    if (isPrimitive(normalizedCause)) return primitiveToError(normalizedCause);
+    if (isObject(normalizedCause)) return normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
 
     return undefined;
 };
@@ -211,15 +202,9 @@ const normalizeErrorsArray = (errorsArray: unknown[], opts: NormalizeOptionsInte
 const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
     const normalizedError = normalizeUnknown(errorValue, opts, depth + 1, seen);
 
-    if (isErrorShaped(normalizedError)) {
-        return [normalizedError as ErrorShape];
-    }
-    if (isPrimitive(normalizedError)) {
-        return [primitiveToError(normalizedError)];
-    }
-    if (isObject(normalizedError)) {
-        return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
-    }
+    if (isErrorShaped(normalizedError)) return [normalizedError as ErrorShape];
+    if (isPrimitive(normalizedError)) return [primitiveToError(normalizedError)];
+    if (isObject(normalizedError)) return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
     /* node:coverage ignore next 2 */
     return [];
 };
@@ -230,10 +215,7 @@ const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsIntern
  */
 const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorRecord => {
     const normalizedErrors: ErrorRecord = {};
-    const errorKeys = getCustomKeys(errorsObj, {
-        includeNonEnumerable: true,
-        excludeKeys: new Set(),
-    });
+    const errorKeys = getCustomKeys(errorsObj, { includeNonEnumerable: true, excludeKeys: new Set() });
 
     // Enforce loop bound
     const boundedErrorKeys = errorKeys.slice(0, MAX_PROPERTIES);
@@ -310,18 +292,10 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     const finalMessage = computeFinalMessage();
 
     // Construct the StdError instance
-    const stderrOptions: Dictionary = {
-        name: finalName,
-        maxDepth: opts.maxDepth,
-    };
+    const stderrOptions: Dictionary = { name: finalName, maxDepth: opts.maxDepth };
 
-    if (errorShape.cause !== undefined && errorShape.cause !== null) {
-        stderrOptions.cause = errorShape.cause;
-    }
-
-    if (errorShape.errors !== undefined && errorShape.errors !== null) {
-        stderrOptions.errors = errorShape.errors;
-    }
+    if (errorShape.cause !== undefined && errorShape.cause !== null) stderrOptions.cause = errorShape.cause;
+    if (errorShape.errors !== undefined && errorShape.errors !== null) stderrOptions.errors = errorShape.errors;
 
     // Create the StdError instance
     const e = new StdError(finalMessage, stderrOptions) as ErrorShape;
@@ -377,9 +351,7 @@ const stderr = <T = ErrorShape>(input: unknown, options: NormalizeOptions = {}, 
     }
 
     // Always preserve original stack trace if we captured one
-    if (originalStack) {
-        e.stack = originalStack;
-    }
+    if (originalStack) e.stack = originalStack;
 
     // Type cast to generic T - allows callers to specify expected return type
     // while we always return StdError. This is safe because StdError extends Error
@@ -393,12 +365,8 @@ Object.defineProperty(stderr, 'maxDepth', {
         return _maxDepth;
     },
     set(value: number) {
-        if (!Number.isInteger(value)) {
-            throw new TypeError(`maxDepth must be an integer, got: ${typeof value}`);
-        }
-        if (value < 1 || value > 1000) {
-            throw new RangeError(`maxDepth must be between 1 and 1000, got: ${value}`);
-        }
+        if (!Number.isInteger(value)) throw new TypeError(`maxDepth must be an integer, got: ${typeof value}`);
+        if (value < 1 || value > 1000) throw new RangeError(`maxDepth must be between 1 and 1000, got: ${value}`);
         _maxDepth = value;
     },
     enumerable: true,
