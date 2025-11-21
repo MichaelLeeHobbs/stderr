@@ -379,4 +379,272 @@ describe('StdError', () => {
             expect(json.data).toBeDefined();
         });
     });
+
+    // =========================================================================
+    // Coverage Tests for Uncovered Branches
+    // =========================================================================
+    describe('uncovered branch coverage', () => {
+        describe('prototype chain edge case (line 132-133)', () => {
+            it('handles custom subclass correctly', () => {
+                // This tests that the prototype chain is maintained correctly
+                // The internal code at lines 132-133 ensures proper inheritance
+                class CustomStdError extends StdError {
+                    constructor(message: string, public code: string) {
+                        super(message, { name: 'CustomError' });
+                    }
+                }
+                const error = new CustomStdError('Test', 'E_CUSTOM');
+                expect(error).toBeInstanceOf(StdError);
+                expect(error).toBeInstanceOf(Error);
+                expect(error.code).toBe('E_CUSTOM');
+            });
+        });
+
+        describe('max depth limit tests (lines 178-179, 276-277, 308-310)', () => {
+            it('toString() hits max depth limit', () => {
+                const error = new StdError('Test', { maxDepth: 1 });
+                const deepCause = new StdError('Level 1', {
+                    cause: new StdError('Level 2', {
+                        cause: new StdError('Level 3')
+                    })
+                });
+                (error as StdError & { cause: unknown }).cause = deepCause;
+
+                const str = error.toString();
+                expect(str).toContain('[Max depth of 1 reached]');
+            });
+
+            it('formatErrors hits max depth for array', () => {
+                const error = new StdError('Test', {
+                    maxDepth: 1,
+                    errors: [
+                        new StdError('Error 1', {
+                            errors: [new StdError('Nested')]
+                        })
+                    ]
+                });
+                const str = error.toString();
+                expect(str).toContain('[Max depth of 1 reached]');
+            });
+
+            it('toJSON hits max depth limit', () => {
+                const error = new StdError('Test', { maxDepth: 1 });
+                let deep: Record<string, unknown> = { value: 'deep' };
+                for (let i = 0; i < 5; i++) {
+                    deep = { nested: deep };
+                }
+                (error as StdError & { data: unknown }).data = deep;
+
+                const json = error.toJSON();
+                const jsonStr = JSON.stringify(json);
+                expect(jsonStr).toContain('[Max depth of 1 reached]');
+            });
+        });
+
+        describe('circular reference tests (lines 183-184, 287, 385-386)', () => {
+            it('toString() detects circular reference', () => {
+                const error = new StdError('Test');
+                (error as StdError & { self: unknown }).self = error;
+
+                const str = error.toString();
+                expect(str).toContain('[Circular]');
+            });
+
+            it('toJSON detects circular reference', () => {
+                const error = new StdError('Test');
+                (error as StdError & { self: unknown }).self = error;
+
+                const json = error.toJSON();
+                const jsonStr = JSON.stringify(json);
+                expect(jsonStr).toContain('[Circular]');
+            });
+        });
+
+        describe('name fallback tests (lines 190, 349)', () => {
+            it('toString uses default Error name when name is empty', () => {
+                const error = new StdError('Test', { name: '' });
+                const str = error.toString();
+                expect(str).toContain('Error: Test');
+            });
+
+            it('toJSON uses default Error name when name is empty', () => {
+                const error = new StdError('Test', { name: '' });
+                const json = error.toJSON();
+                expect(json.name).toBe('Error');
+            });
+        });
+
+        describe('formatValue edge cases (lines 303, 335-338)', () => {
+            it('formats null value', () => {
+                const error = new StdError('Test', { nullValue: null });
+                const str = error.toString();
+                expect(str).toContain('nullValue: null');
+            });
+
+            it('formats symbol value', () => {
+                const sym = Symbol('testSymbol');
+                const error = new StdError('Test', { symValue: sym });
+                const str = error.toString();
+                expect(str).toContain('Symbol(testSymbol)');
+            });
+
+            it('formats array with length 0', () => {
+                const error = new StdError('Test', { emptyArray: [] });
+                const str = error.toString();
+                expect(str).toContain('emptyArray: []');
+            });
+
+            it('formats array with length > 3', () => {
+                const error = new StdError('Test', { longArray: [1, 2, 3, 4, 5] });
+                const str = error.toString();
+                expect(str).toContain('[Array(5)]');
+            });
+
+            it('formats array with length <= 3', () => {
+                const error = new StdError('Test', { shortArray: [1, 2, 3] });
+                const str = error.toString();
+                expect(str).toContain('[1, 2, 3]');
+            });
+
+            it('formats object with 0 keys', () => {
+                const error = new StdError('Test', { emptyObj: {} });
+                const str = error.toString();
+                expect(str).toContain('emptyObj: {}');
+            });
+
+            it('formats object with > 3 keys', () => {
+                const error = new StdError('Test', {
+                    bigObj: { a: 1, b: 2, c: 3, d: 4, e: 5 }
+                });
+                const str = error.toString();
+                expect(str).toContain('{Object with 5 keys}');
+            });
+
+            it('formats unknown type fallback', () => {
+                const func = function testFunc() { return 42; };
+                const error = new StdError('Test', { funcValue: func });
+                const str = error.toString();
+                expect(str).toContain('funcValue:');
+            });
+        });
+
+        describe('formatErrors with non-error items (lines 318, 331)', () => {
+            it('formats errors array with non-error-shaped items', () => {
+                const error = new StdError('Test', {
+                    errors: [
+                        new Error('Real error'),
+                        'string error',
+                        42,
+                        { notAnError: true }
+                    ]
+                });
+                const str = error.toString();
+                expect(str).toContain('[errors]');
+                expect(str).toContain('string error');
+                expect(str).toContain('42');
+            });
+
+            it('formats errors object with non-error-shaped values', () => {
+                const error = new StdError('Test', {
+                    errors: {
+                        err1: new Error('Real error'),
+                        err2: 'string value',
+                        err3: 123,
+                        err4: { data: 'value' }
+                    }
+                });
+                const str = error.toString();
+                expect(str).toContain('[errors]');
+                expect(str).toContain('err2:');
+                expect(str).toContain('err3:');
+            });
+
+            it('formats errors as non-array non-object (fallback)', () => {
+                const error = new StdError('Test', { errors: 'not an array or object' });
+                const str = error.toString();
+                expect(str).toContain('[errors]');
+            });
+        });
+
+        describe('toJSON edge cases (lines 372-373, 390-391, 470-474, 478-481)', () => {
+            it('toJSON wraps string result from serializeError', () => {
+                const error = new StdError('Test', { maxDepth: 0 });
+                const json = error.toJSON();
+                expect(json).toHaveProperty('name');
+                expect(json).toHaveProperty('message');
+            });
+
+            it('serializeValue handles symbols', () => {
+                const sym = Symbol('test');
+                const error = new StdError('Test', { symProp: sym });
+                const json = error.toJSON();
+                expect(json.symProp).toBe('Symbol(test)');
+            });
+
+            it('serializeValue handles fallback for unknown types', () => {
+                const func = () => 42;
+                const error = new StdError('Test', { funcProp: func });
+                const json = error.toJSON();
+                expect(typeof json.funcProp).toBe('string');
+            });
+
+            it('serializeValue handles symbol keys in objects', () => {
+                const sym = Symbol('key');
+                const objWithSymbol = { [sym]: 'value', normal: 'data' };
+                const error = new StdError('Test', { data: objWithSymbol });
+                const json = error.toJSON();
+                expect(json.data).toHaveProperty('normal');
+            });
+
+            it('handles enumerable symbol properties', () => {
+                const sym = Symbol('enumSym');
+                const obj = {};
+                Object.defineProperty(obj, sym, {
+                    value: 'symbolValue',
+                    enumerable: true
+                });
+                const error = new StdError('Test', { data: obj });
+                const json = error.toJSON();
+                expect(json.data).toBeDefined();
+            });
+        });
+
+        describe('static defaultMaxDepth', () => {
+            it('can set global defaultMaxDepth', () => {
+                const originalDefault = StdError.defaultMaxDepth;
+                try {
+                    StdError.defaultMaxDepth = 3;
+                    const error = new StdError('Test');
+                    let deep: Record<string, unknown> = { value: 'bottom' };
+                    for (let i = 0; i < 10; i++) {
+                        deep = { nested: deep };
+                    }
+                    (error as StdError & { data: unknown }).data = deep;
+
+                    const str = error.toString();
+                    expect(str).toContain('[Max depth of 3 reached]');
+                } finally {
+                    StdError.defaultMaxDepth = originalDefault;
+                }
+            });
+
+            it('instance maxDepth overrides global default', () => {
+                const originalDefault = StdError.defaultMaxDepth;
+                try {
+                    StdError.defaultMaxDepth = 10;
+                    const error = new StdError('Test', { maxDepth: 2 });
+                    let deep: Record<string, unknown> = { value: 'bottom' };
+                    for (let i = 0; i < 10; i++) {
+                        deep = { nested: deep };
+                    }
+                    (error as StdError & { data: unknown }).data = deep;
+
+                    const str = error.toString();
+                    expect(str).toContain('[Max depth of 2 reached]');
+                } finally {
+                    StdError.defaultMaxDepth = originalDefault;
+                }
+            });
+        });
+    });
 });

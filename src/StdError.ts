@@ -128,7 +128,7 @@ export class StdError extends Error implements ErrorShape {
 
         // Ensure proper prototype chain for subclasses
         const actualProto = new.target.prototype;
-        if (Object.getPrototypeOf(this) !== actualProto) {
+        if (Object.getPrototypeOf(this) !== actualProto) { // Untested code path
             Object.setPrototypeOf(this, actualProto);
         }
     }
@@ -175,11 +175,11 @@ export class StdError extends Error implements ErrorShape {
 
         // Check depth limit
         if (depth >= maxDepth) {
-            return `${indent}[Max depth of ${maxDepth} reached]`;
+            return `${indent}[Max depth of ${maxDepth} reached]`; // Untested code path
         }
 
         // Check circular reference
-        if (isObject(error) && seen.has(error as object)) {
+        if (isObject(error) && seen.has(error as object)) { // Untested code path
             return `${indent}[Circular]`;
         }
 
@@ -190,7 +190,7 @@ export class StdError extends Error implements ErrorShape {
         const lines: string[] = [];
 
         // First line: name and message
-        const name = error.name || 'Error';
+        const name = error.name || 'Error'; // Untested code path branch 'Error'
         const message = error.message || '';
         const firstLine = message ? `${name}: ${message}` : name;
         lines.push(depth === 0 ? firstLine : `${indent}${firstLine}`);
@@ -386,7 +386,7 @@ export class StdError extends Error implements ErrorShape {
         }
 
         // Check circular reference
-        if (isObject(error) && seen.has(error as object)) {
+        if (isObject(error) && seen.has(error as object)) {  // Branch untested
             return '[Circular]';
         }
 
@@ -395,7 +395,7 @@ export class StdError extends Error implements ErrorShape {
         }
 
         const result: Dictionary = {
-            name: error.name || 'Error',
+            name: error.name || 'Error',  // Branch untested 'Error'
             message: error.message || '',
         };
 
