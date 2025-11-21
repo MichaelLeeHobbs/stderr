@@ -42,12 +42,6 @@ interface NormalizeOptionsInternal extends NormalizeOptions {
     maxDepth: number;
 }
 
-interface StderrFn {
-    <T = StdError>(input: unknown, options?: NormalizeOptions, depth?: number): T;
-
-    maxDepth: number;
-}
-
 // Forward declarations needed due to circular dependencies between functions
 // eslint-disable-next-line prefer-const
 let normalizeUnknown: (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => unknown;
@@ -371,4 +365,3 @@ Object.defineProperty(stderr, 'maxDepth', {
 
 // Export stderr with proper type (maxDepth property added via Object.defineProperty above)
 export { stderr };
-export type { StderrFn };
