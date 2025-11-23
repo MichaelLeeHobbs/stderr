@@ -1,185 +1,82 @@
-# stderr
+# stderr-lib
 
-> Normalize unknown error values to a standard format with cause chain support
+> Type-safe error handling and standardization for TypeScript/JavaScript
 
-[![npm version](https://img.shields.io/npm/v/stderr.svg)](https://www.npmjs.com/package/stderr)
+[![npm version](https://img.shields.io/npm/v/stderr-lib.svg)](https://www.npmjs.com/package/stderr-lib)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 🚨 Breaking Changes in v2.0
-
-**v2.0 introduces `StdError` class with built-in comprehensive `toString()` and `toJSON()` methods.**
-
-### Removed Features
-
-1. **`errorToJson()` function removed** - Use `StdError.toJSON()` or `JSON.stringify()` instead
-2. **`patchToString` option removed** - StdError automatically has comprehensive `toString()`
-3. **`enableSubclassing` option removed** - All errors return as `StdError` instances
-
-### Migration Guide
-
-**Before (v1.x)**:
-
-```javascript
-import { stderr, errorToJson } from 'stderr-lib';
-
-const err = stderr(error, { patchToString: true });
-console.log(err.toString()); // Comprehensive output
-const json = errorToJson(err); // Serialize to JSON
-```
-
-**After (v2.0)**:
-
-```javascript
-import { stderr } from 'stderr-lib';
-
-const err = stderr(error); // Returns StdError instance
-console.log(err.toString()); // Comprehensive output automatically!
-const json = JSON.stringify(err); // Built-in toJSON() method!
-```
-
-**What You Get:**
-
-- ✅ Cleaner API - no options needed for most cases
-- ✅ Automatic comprehensive `toString()` - always includes cause, errors, custom properties
-- ✅ Automatic `toJSON()` - works with `JSON.stringify()` out of the box
-- ✅ Smaller bundle size (21KB vs 23KB)
+**Version 2.0** - Clean, opinionated error handling with explicit patterns.
 
 ---
 
-## Why stderr?
+## Overview
 
-**The Problem:** JavaScript errors come in all shapes and sizes. A `fetch` error might have a `cause` property. A Mongoose validation error has an `errors` object. A Sequelize error has nested `original` and `parent` properties. When you `console.log` these errors, you often miss critical debugging information hidden in non-enumerable properties or nested structures.
+`stderr-lib` provides two focused tools:
 
-**The Solution:** `stderr` normalizes ANY error-like value into a consistent `StdError` format with comprehensive logging built-in.
+1. **`stderr()`** - Normalize any error-like value into a standard `StdError` format
+2. **`tryCatch()`** - Type-safe error handling with Result pattern
 
-```javascript
-// Before stderr - Missing critical error details
+**Philosophy**: Explicit error handling over implicit chaining. Force developers to handle errors properly.
+
+---
+
+## Why stderr-lib?
+
+### The Problem
+
+JavaScript errors are inconsistent and often lose critical information:
+
+```typescript
+// Native Error - missing details
 try {
-    await problematicOperation();
-} catch (e) {
-    console.log(e.toString()); // "Error: fetch failed" - Where's the cause? The details?
-    console.log(JSON.stringify(e)); // "{}" - Most Error properties aren't enumerable!
+    await fetch('https://api.example.com/data');
+} catch (error) {
+    console.log(error.toString()); // "TypeError: fetch failed"
+    // Lost: cause chain, custom properties, nested errors
+    console.log(JSON.stringify(error)); // "{}" - Not serializable!
 }
 
-// After stderr - Complete error visibility
+// Database errors - complex nested structures
 try {
-    await problematicOperation();
-} catch (e) {
-    const err = stderr(e); // Returns StdError instance
-    console.log(err.toString()); // Full error with cause chain, all properties, nested errors!
-    console.log(JSON.stringify(err)); // Everything serialized automatically!
-    logger.error('Operation failed', err); // Your logger now captures EVERYTHING
-}
-```
-
-### Real-World Problem Examples
-
-```javascript
-// Problem 1: Fetch errors with cause chains (often invisible)
-try {
-    const res = await fetch('https://api.example.com/data');
-} catch (e) {
-    console.log(e.message); // "fetch failed"
-    // But e.cause contains the actual network error - invisible in logs!
+    await User.create(invalidData);
+} catch (error) {
+    // Mongoose: error.errors is object map (not logged)
+    // Sequelize: error.original, error.parent (hidden)
+    console.log(error); // Only shows top-level message
 }
 
-// Problem 2: Database ORM errors with nested structures
-try {
-    await User.create(userData);
-} catch (e) {
-    // Sequelize: e.errors, e.original, e.parent, e.sql - all hidden
-    // Mongoose: e.errors is an object map with validation details - not logged
-    console.log(e.toString()); // Just "ValidationError" - useless for debugging!
-}
-
-// Problem 3: Unknown error shapes from third-party libraries
-someLibrary.doSomething().catch(e => {
-    // Is it an Error? An object? A string? Has custom properties?
-    console.log(e); // Who knows what you'll get?
+// Third-party library - unknown error shape
+someLibrary.operation().catch(error => {
+    // Is it Error? string? object? null? Who knows?
+    logger.error(error); // Hope for the best
 });
+```
 
-// Solution: stderr handles ALL of these
-import { stderr } from 'stderr-lib';
+### The Solution
 
-// Just use stderr() - toString() is automatically comprehensive!
+```typescript
+import { stderr, tryCatch } from 'stderr-lib';
+
+// stderr: Normalize any error for logging
 try {
-    await problematicOperation();
-} catch (e) {
-    const normalizedError = stderr(e); // Returns StdError with built-in toString()
-    logger.error(normalizedError.toString()); // EVERYTHING is logged!
-    // Or just pass it directly - most loggers call toString() automatically
-    logger.error('Operation failed:', normalizedError);
+    await operation();
+} catch (error) {
+    const normalized = stderr(error);
+    console.log(normalized.toString()); // Complete error with cause chain, all properties
+    logger.error('Failed:', normalized); // Everything captured
 }
+
+// tryCatch: Type-safe error handling
+const result = await tryCatch(async () => fetchUser(id));
+if (!result.ok) {
+    // Full stack and details available! No more 'fetch failed' mysteries
+    logger.error('Fetch failed:', result.error.toString());
+    return null;
+}
+return result.value; // TypeScript knows this is User type
 ```
 
-## The Power of Automatic toString()
-
-The killer feature of `stderr` is that all returned `StdError` instances have comprehensive `toString()` built-in:
-
-```javascript
-import { stderr } from 'stderr-lib';
-
-// Complex error with cause chain and metadata
-const error = {
-    name: 'DatabaseError',
-    message: 'Failed to save user',
-    code: 'ER_DUP_ENTRY',
-    statusCode: 409,
-    sql: 'INSERT INTO users ...',
-    cause: {
-        name: 'ConnectionError',
-        message: 'Connection lost',
-        code: 'ECONNRESET',
-        cause: 'Network timeout',
-    },
-    errors: {
-        email: 'Already exists',
-        username: 'Too short',
-    },
-};
-
-// With global config, just call stderr()
-const normalized = stderr(error);
-
-// Standard toString() would give you: "DatabaseError: Failed to save user"
-// But stderr's toString() gives you EVERYTHING:
-console.log(normalized.toString());
-/*
-DatabaseError: Failed to save user
-  at <stack trace>
-  code: 'ER_DUP_ENTRY',
-  statusCode: 409,
-  sql: 'INSERT INTO users ...',
-  [cause]: ConnectionError: Connection lost
-    code: 'ECONNRESET'
-    [cause]: Error: Network timeout
-  [errors]: {
-    email: Error: Already exists,
-    username: Error: Too short
-  }
-*/
-
-// Perfect for logging - no more hidden error details!
-logger.error('Operation failed:', normalized.toString());
-
-// You can also configure other defaults globally
-stderr.maxDepth = 10; // Deeper recursion for complex errors
-stderr.includeNonEnumerable = true; // Include hidden properties
-```
-
-## Features
-
-- 🔄 **Normalizes any value to a proper Error instance**
-- 🔗 **Preserves error cause chains** (native `cause` support)
-- 📦 **Handles AggregateError and nested errors**
-- 🏷️ **Preserves custom properties and metadata**
-- 🔍 **Circular reference detection**
-- 📝 **Enhanced toString() for complete error logging**
-- 🎯 **TypeScript support with full type safety**
-- 📊 **JSON serialization support**
-- 🔧 **Configurable depth limits and behavior**
-- 📦 **ESM and CommonJS support**
-- 🪶 **Zero dependencies**
+---
 
 ## Installation
 
@@ -188,388 +85,719 @@ npm install stderr-lib
 ```
 
 ```bash
-yarn add stderr-lib
-```
-
-```bash
 pnpm add stderr-lib
 ```
 
-## Core Usage
-
-### The Main Pattern - Complete Error Logging
-
-```javascript
-import { stderr } from 'stderr-lib';
-
-// The pattern you'll use everywhere
-function safeErrorLog(error, logger = console) {
-    const normalized = stderr(error); // Returns StdError with comprehensive toString()
-    logger.error(normalized.toString());
-    return normalized;
-}
-
-// Use it anywhere you catch errors
-try {
-    await riskyOperation();
-} catch (e) {
-    const err = safeErrorLog(e, logger);
-    // err is now a StdError with ALL information preserved
-}
-
-// Works with any logger - automatic serialization
-app.use((err, req, res, next) => {
-    const normalized = stderr(err);
-    winston.error('Request failed', {
-        error: normalized.toString(),
-        stack: normalized.stack,
-        metadata: normalized.toJSON(), // Built-in JSON serialization
-    });
-});
+```bash
+yarn add stderr-lib
 ```
+
+---
+
+## Quick Start
 
 ### Basic Error Normalization
 
 ```typescript
 import { stderr } from 'stderr-lib';
 
-// From string
-const err1 = stderr('Something went wrong');
-console.log(err1.message); // "Something went wrong"
+try {
+    await riskyOperation();
+} catch (error) {
+    const err = stderr(error);
 
-// From object
-const err2 = stderr({ message: 'Failed', code: 'E_FAIL' });
-console.log(err2.message); // "Failed"
-console.log(err2.code); // "E_FAIL"
+    console.log(err.toString());
+    // Complete output with cause chain, custom properties, nested errors
 
-// From Error instance (preserves all properties)
-const original = new Error('Original');
-original.code = 'CUSTOM';
-const err3 = stderr(original);
-console.log(err3.code); // "CUSTOM"
-
-// From unknown values
-stderr(null); // Error: Unknown error (Null)
-stderr(undefined); // Error: Unknown error (Undefined)
-stderr(42); // Error: 42
-stderr({}); // Error with empty message
+    logger.error('Operation failed', err);
+    // Everything is captured for your logging service
+}
 ```
 
-### Error Cause Chains
+### Type-Safe Error Handling
+
+```typescript
+import { tryCatch } from 'stderr-lib';
+
+const result = await tryCatch(async () => {
+    const response = await fetch('/api/user/123');
+    return response.json();
+});
+
+if (!result.ok) {
+    // Explicit error handling - you MUST handle this
+    console.error('Request failed:', result.error);
+    return null;
+}
+
+// TypeScript knows result.value is the JSON data
+console.log('User:', result.value);
+```
+
+---
+
+## API Reference
+
+### `stderr(input, options?)`
+
+Normalizes any value into a `StdError` instance.
+
+```typescript
+function stderr<T = ErrorShape>(input: unknown, options?: NormalizeOptions): T & StdError;
+```
+
+**Parameters:**
+
+- `input` - Any value (Error, string, object, null, etc.)
+- `options` - Optional configuration
+    - `maxDepth?: number` - Maximum recursion depth (default: 8, range: 1-1000)
+
+**Returns:** `StdError` instance with comprehensive toString() and toJSON()
+
+**Examples:**
+
+```typescript
+// From Error
+const err1 = stderr(new Error('Failed'));
+
+// From string
+const err2 = stderr('Something went wrong');
+
+// From object
+const err3 = stderr({ message: 'DB error', code: 'ER_DUP' });
+
+// From null/undefined
+const err4 = stderr(null); // Error: "null"
+
+// With options
+const err5 = stderr(deepError, { maxDepth: 15 });
+```
+
+### `StdError` Class
+
+All errors returned by `stderr()` are `StdError` instances.
+
+**Properties:**
+
+- `name: string` - Error name
+- `message: string` - Error message
+- `stack?: string` - Stack trace
+- `cause?: unknown` - Error cause (preserved from input)
+- `errors?: unknown` - Nested errors (from AggregateError, validation errors, etc.)
+- `[key: string]: unknown` - Custom properties preserved
+
+**Methods:**
+
+#### `toString(): string`
+
+Comprehensive string representation including cause chain and all properties.
 
 ```typescript
 const err = stderr({
-    message: 'Database operation failed',
-    cause: {
-        message: 'Connection timeout',
-        cause: 'Network unreachable',
-    },
+    message: 'Database error',
+    code: 'ER_DUP_ENTRY',
+    cause: new Error('Connection lost'),
 });
 
-// Walk the cause chain
-let current = err;
-while (current) {
-    console.log(current.message);
-    current = current.cause;
-}
-// Output:
-// "Database operation failed"
-// "Connection timeout"
-// "Network unreachable"
+console.log(err.toString());
+/*
+Error: Database error
+  at <stack>
+  code: "ER_DUP_ENTRY"
+  [cause]: Error: Connection lost
+    at <stack>
+*/
 ```
 
-### AggregateError Support
+#### `toJSON(): object`
+
+JSON-serializable representation.
 
 ```typescript
-// From array (creates AggregateError)
-const err = stderr(['error1', new Error('error2')]);
-console.log(err.errors); // Array of normalized errors
+const err = stderr(new Error('Failed'));
+const json = JSON.stringify(err); // toJSON() called automatically
 
-// From object with errors property
-const validationErr = stderr({
-    name: 'ValidationError',
-    message: 'Multiple fields failed',
-    errors: {
-        email: 'Invalid format',
-        age: 'Must be positive',
-    },
+// Or call directly
+const obj = err.toJSON();
+```
+
+### `tryCatch(fn, mapError?)`
+
+Type-safe wrapper for operations that might throw.
+
+```typescript
+// Sync version
+function tryCatch<T, E = StdError>(fn: () => T, mapError?: (error: StdError) => E): Result<T, E>;
+
+// Async version
+function tryCatch<T, E = StdError>(fn: () => Promise<T>, mapError?: (error: StdError) => E): Promise<Result<T, E>>;
+```
+
+**Parameters:**
+
+- `fn` - Function to execute (sync or async)
+- `mapError` - Optional error transformer
+
+**Returns:** `Result<T, E>` - Discriminated union
+
+```typescript
+type Result<T, E> = { ok: true; value: T; error: null } | { ok: false; value: null; error: E };
+```
+
+**Examples:**
+
+```typescript
+// Sync
+const result = tryCatch(() => JSON.parse(input));
+if (!result.ok) {
+    console.error('Parse failed:', result.error);
+    return;
+}
+console.log('Parsed:', result.value);
+
+// Async
+const result = await tryCatch(async () => {
+    return await fetch('/api/data');
 });
 
-// Complex ORM-style errors
+// With error transformation
+const result = tryCatch(
+    () => riskyOperation(),
+    error => ({ code: error.name, message: error.message })
+);
+if (!result.ok) {
+    console.log(result.error.code); // Custom error type
+}
+```
+
+### Global Configuration
+
+```typescript
+// Set maximum recursion depth globally
+stderr.maxDepth = 10; // Default: 8, Range: 1-1000
+
+// Validation: Throws if invalid
+stderr.maxDepth = 2000; // RangeError: maxDepth must be between 1 and 1000
+stderr.maxDepth = 3.5; // TypeError: maxDepth must be an integer
+```
+
+---
+
+## Usage Examples
+
+### Error Normalization for Logging
+
+```typescript
+import { stderr } from 'stderr-lib';
+
+// Normalize any error for consistent logging
+function logError(error: unknown, context: Record<string, unknown>) {
+    const normalized = stderr(error);
+
+    logger.error('Operation failed', {
+        error: normalized, // Full error with cause chain
+        errorString: normalized.toString(), // Human-readable
+        context,
+    });
+}
+
+try {
+    await processPayment(order);
+} catch (error) {
+    logError(error, { orderId: order.id, userId: user.id });
+}
+```
+
+### API Error Handling
+
+```typescript
+import { tryCatch } from 'stderr-lib';
+
+app.post('/users', async (req, res) => {
+    const result = await tryCatch(async () => {
+        const validated = validateUser(req.body);
+        return await db.users.create(validated);
+    });
+
+    if (!result.ok) {
+        logger.error('User creation failed', {
+            error: result.error,
+            body: sanitize(req.body),
+        });
+
+        return res.status(500).json({
+            error: 'Failed to create user',
+            message: result.error.message,
+        });
+    }
+
+    return res.status(201).json(result.value);
+});
+```
+
+### Handling Cause Chains
+
+```typescript
+const error = {
+    message: 'Payment failed',
+    cause: {
+        message: 'Gateway timeout',
+        cause: new Error('Network unreachable'),
+    },
+};
+
+const normalized = stderr(error);
+console.log(normalized.toString());
+/*
+Error: Payment failed
+  [cause]: Error: Gateway timeout
+    [cause]: Error: Network unreachable
+      at <stack>
+*/
+
+// Programmatic access
+if (normalized.cause) {
+    console.log('Root cause:', normalized.cause);
+}
+```
+
+### Handling Validation Errors
+
+```typescript
+// Mongoose-style validation error
 const mongooseError = {
     name: 'ValidationError',
     message: 'User validation failed',
     errors: {
         email: {
             message: 'Email is required',
-            kind: 'required',
             path: 'email',
         },
         age: {
-            message: 'Age must be positive',
-            kind: 'min',
+            message: 'Must be positive',
             path: 'age',
             value: -5,
         },
     },
 };
 
-const normalized = stderr(mongooseError, { patchToString: true });
-// toString() will show ALL nested error details and properties
-```
+const normalized = stderr(mongooseError);
+console.log(normalized.toString());
+/*
+ValidationError: User validation failed
+  [errors]: {
+    email: Error: Email is required (path: "email"),
+    age: Error: Must be positive (path: "age", value: -5)
+  }
+*/
 
-### JSON Serialization
-
-```typescript
-import { stderr } from 'stderr-lib';
-
-const err = new Error('Failed');
-err.cause = new Error('Root cause');
-(err as Error & { customData: unknown }).customData = { userId: 123 };
-
-// StdError has built-in toJSON() - just use JSON.stringify()!
-const normalized = stderr(err);
-const json = JSON.stringify(normalized, null, 2);
-console.log(json);
-// Output includes all error properties, cause chain, everything!
-
-// Perfect for sending errors to logging services
-fetch('/api/log', {
-    method: 'POST',
-    body: JSON.stringify({
-        error: normalized, // toJSON() called automatically
-        timestamp: new Date().toISOString(),
-    }),
-});
-
-// Or use the toJSON() method directly
-const jsonObj = normalized.toJSON();
-```
-
-### Try-Catch Wrapper with Type Safety
-
-#### Basic Usage with Type Inference
-
-```typescript
-import { tryCatch } from 'stderr-lib';
-
-// TypeScript infers the promise type automatically
-const result = await tryCatch(fetch('/api/data'));
-if (!result.ok) {
-    // Safe error logging with stderr
-    const err = stderr(result.error, { patchToString: true });
-    logger.error(err.toString());
-    return;
+// Access nested errors
+if (normalized.errors) {
+    Object.entries(normalized.errors).forEach(([field, err]) => {
+        console.log(`${field}: ${stderr(err).message}`);
+    });
 }
-// TypeScript knows result.data is Response type here
-console.log('Success:', result.data);
 ```
 
-#### Explicit Generic Types
+### Retry Logic with tryCatch
 
 ```typescript
-// Specify both success and error types explicitly
-interface User {
-    id: number;
-    name: string;
-    email: string;
-}
+async function fetchWithRetry(url: string, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        const result = await tryCatch(() => fetch(url));
 
-class ApiError extends Error {
-    constructor(
-        message: string,
-        public code: number
-    ) {
-        super(message);
+        if (result.ok) {
+            return result;
+        }
+
+        logger.warn(`Attempt ${attempt} failed:`, result.error);
+
+        if (attempt < maxRetries) {
+            await delay(attempt * 1000); // Exponential backoff
+        }
     }
-}
 
-// Explicitly type both T (success) and E (error)
-const result = await tryCatch<User, ApiError>(fetchUser(userId), err => new ApiError(String(err), 500));
-
-if (!result.ok) {
-    // result.error is typed as ApiError
-    console.error(`API Error ${result.error.code}: ${result.error.message}`);
-} else {
-    // result.data is typed as User
-    console.log(`User: ${result.data.name} (${result.data.email})`);
+    return await tryCatch(() => fetch(url)); // Final attempt
 }
 ```
 
-#### Working with Different Error Types
+### Graceful Degradation
 
 ```typescript
-// Example 1: Network errors with custom error type
-interface NetworkError {
-    type: 'network';
-    status?: number;
-    message: string;
+async function getData(id: string) {
+    // Try cache first
+    const cacheResult = await tryCatch(() => fetchFromCache(id));
+    if (cacheResult.ok) {
+        return cacheResult.value;
+    }
+
+    logger.warn('Cache miss, trying database:', cacheResult.error);
+
+    // Fallback to database
+    const dbResult = await tryCatch(() => fetchFromDB(id));
+    if (dbResult.ok) {
+        return dbResult.value;
+    }
+
+    logger.error('Both cache and DB failed:', dbResult.error);
+    throw dbResult.error;
 }
+```
 
-const result = await tryCatch<Response, NetworkError>(fetch('/api/data'), err => ({
-    type: 'network',
-    status: err instanceof Response ? err.status : undefined,
-    message: String(err),
-}));
+---
 
-// Example 2: Validation errors with multiple error types
-type ValidationError = {
-    type: 'validation';
-    fields: Record<string, string>;
+## Advanced Features
+
+### Deep Nesting with maxDepth
+
+```typescript
+const deepError = {
+    message: 'Level 0',
+    cause: {
+        message: 'Level 1',
+        cause: {
+            message: 'Level 2',
+            cause: {
+                message: 'Level 3',
+                // ... continues
+            },
+        },
+    },
 };
 
-type AppError = NetworkError | ValidationError | Error;
+// Default depth is 8
+const err1 = stderr(deepError);
 
-const result = await tryCatch<User, AppError>(createUser(userData), err => {
-    if (isValidationError(err)) {
-        return { type: 'validation', fields: err.fields };
-    }
-    return new Error(String(err));
-});
+// Increase for deeper structures
+const err2 = stderr(deepError, { maxDepth: 20 });
 
-// Example 3: Using unknown (default) for flexible error handling
-const result = await tryCatch<User>(
-    fetchUser(id)
-    // E defaults to unknown when not specified
+// Or set globally
+stderr.maxDepth = 15;
+const err3 = stderr(deepError);
+```
+
+### Custom Properties Preservation
+
+```typescript
+interface CustomError extends Error {
+    code: string;
+    statusCode: number;
+    metadata: { userId: number };
+}
+const customError = new Error('Custom') as CustomError;
+customError.code = 'ERR_CUSTOM';
+customError.statusCode = 500;
+customError.metadata = { userId: 123 };
+
+const normalized = stderr(customError);
+
+console.log(normalized.code); // "ERR_CUSTOM"
+console.log(normalized.statusCode); // 500
+console.log(normalized.metadata); // { userId: 123 }
+
+// All properties included in toString() and toJSON()
+```
+
+### AggregateError Support
+
+```typescript
+const errors = [new Error('Error 1'), new Error('Error 2'), new Error('Error 3')];
+
+const aggregateError = new AggregateError(errors, 'Multiple failures');
+const normalized = stderr(aggregateError);
+
+console.log(normalized.toString());
+/*
+AggregateError: Multiple failures
+  [errors]: [
+    Error: Error 1,
+    Error: Error 2,
+    Error: Error 3
+  ]
+*/
+```
+
+### Circular Reference Handling
+
+```typescript
+const obj: any = { message: 'Circular' };
+obj.self = obj;
+obj.cause = obj;
+
+const normalized = stderr(obj); // Won't throw or hang
+console.log(normalized.toString());
+/*
+Error: Circular
+  self: [Circular]
+  [cause]: [Circular]
+*/
+```
+
+---
+
+## TypeScript Support
+
+Full TypeScript support with strict typing.
+
+```typescript
+import { stderr, tryCatch, StdError, Result, ErrorShape } from 'stderr-lib';
+
+// Type inference
+const result = tryCatch(() => 42);
+// result is Result<number, StdError>
+
+// Async inference
+const asyncResult = await tryCatch(async () => 'hello');
+// asyncResult is Result<string, StdError>
+
+// Custom error type
+type CustomError = { code: string; message: string };
+
+const customResult = tryCatch(
+    () => riskyOperation(),
+    (err): CustomError => ({
+        code: err.name || 'UNKNOWN',
+        message: err.message || '',
+    })
 );
+// customResult is Result<ReturnType, CustomError>
 
+// Generic Error shape
+function processError<T extends ErrorShape>(error: T): StdError {
+    return stderr(error);
+}
+```
+
+---
+
+## Breaking Changes from v1.x
+
+### v2.0 Changes
+
+1. **Result property renamed**: `data` → `value`
+
+    ```typescript
+    // v1.x
+    if (result.ok) console.log(result.data);
+
+    // v2.0
+    if (result.ok) console.log(result.value);
+    ```
+
+2. **Removed options**: `originalStack`, `includeNonEnumerable`
+
+    - Stack always preserved from original error
+    - Non-enumerable properties always included
+
+3. **Options validation**: Throws on invalid input
+    ```typescript
+    stderr(error, { maxDepth: 2000 });
+    // RangeError: maxDepth must be between 1 and 1000
+    ```
+
+---
+
+## Design Philosophy
+
+### Explicit Over Implicit
+
+`tryCatch` forces you to handle errors explicitly:
+
+```typescript
+// ✅ GOOD: Explicit error handling
+const result = tryCatch(() => compute());
 if (!result.ok) {
-    // Normalize and log the unknown error
-    const err = stderr(result.error, { patchToString: true });
-    logger.error(err.toString());
+    logger.error('Failed:', result.error);
+    return defaultValue;
 }
+return result.value;
 ```
 
-### Configuration Options
+### Simple Over Complex
+
+Minimal API surface with focused purpose:
+
+- `stderr()` - Normalize errors
+- `tryCatch()` - Type-safe error handling
+- That's it!
+
+### Safe by Default
+
+- Bounded recursion (maxDepth: 1-1000)
+- Circular reference detection
+- DoS prevention (MAX_PROPERTIES, MAX_ARRAY_LENGTH)
+- Input validation with clear errors
+
+---
+
+## Performance
+
+### Benchmarks
+
+```
+stderr(string primitive)         ~500,000 ops/sec
+stderr(Error instance)            ~450,000 ops/sec
+stderr(deep object, depth=3)      ~150,000 ops/sec
+stderr(deep object, depth=8)      ~100,000 ops/sec
+tryCatch(sync success)            ~2,000,000 ops/sec
+tryCatch(sync error)              ~450,000 ops/sec
+```
+
+### Tips
+
+- Use lower `maxDepth` for shallow errors (faster)
+- Avoid creating errors in hot loops
+- Cache normalized errors when possible
+
+---
+
+## Security
+
+### Sanitization
+
+**stderr does NOT sanitize data.** You must sanitize before error creation:
 
 ```typescript
-const err = stderr(input, {
-    // Maximum recursion depth for nested errors (default: 8)
-    maxDepth: 8,
+// ❌ BAD: Sensitive data in error
+throw new Error(`Invalid card: ${creditCard}`);
 
-    // Include non-enumerable properties (default: false)
-    includeNonEnumerable: false,
-
-    // Use native AggregateError when available (default: true)
-    useAggregateError: true,
-
-    // Use native Error cause when available (default: true)
-    useCauseError: true,
-});
-
-// You can also set defaults globally
-stderr.maxDepth = 10; // Deeper recursion for complex errors
-stderr.includeNonEnumerable = true; // Include non-enumerable properties
+// ✅ GOOD: Sanitize first
+const masked = creditCard.slice(-4).padStart(16, '*');
+throw new Error(`Invalid card: ${masked}`);
 ```
 
-**Note**: `patchToString` and `enableSubclassing` options have been removed in v2.0.
-StdError automatically has comprehensive `toString()` and `toJSON()` methods.
+### DoS Protection
 
-## API
+Built-in limits prevent malicious inputs:
 
-### `stderr(input, options?)`
+- `MAX_PROPERTIES = 1000` - Max properties per object
+- `MAX_ARRAY_LENGTH = 10000` - Max array length
+- `maxDepth` (1-1000) - Max recursion depth
 
-Normalizes any input value to a standard Error instance.
+These are **not configurable** to ensure consistent safety.
 
-**Parameters:**
+---
 
-- `input: unknown` - Any value to normalize
-- `options?: NormalizeOptions` - Optional configuration
+## Use Cases
 
-**Returns:** `StdError` - Normalized error instance with comprehensive `toString()` and `toJSON()` methods
+### ✅ Designed For
 
-### `tryCatchAsync<T, E>(promise, mapError?)`
+- Web applications (frontend/backend)
+- Node.js services and APIs
+- Business applications
+- Non-critical medical software
+- Financial applications
+- E-commerce platforms
+- Logging and monitoring
+- Error reporting services
 
-Wraps a Promise to always resolve with a discriminated union result object for superior type safety.
+### ❌ NOT Designed For
 
-**Generic Parameters:**
+- Critical real-time systems (hard deadlines)
+- Avionics/aerospace systems
+- Medical devices (life-critical)
+- Automotive safety systems
+- Systems requiring DO-178C/IEC 62304 certification
 
-- `T` - The type of the success value (inferred from promise)
-- `E` - The type of the error value (defaults to `StdError`)
+_JavaScript/TypeScript is fundamentally unsuitable for hard real-time due to garbage collection, JIT compilation, and non-deterministic timing._
 
-**Parameters:**
+---
 
-- `promise: Promise<T>` - Promise to wrap
-- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
+## FAQ
 
-**Returns:** `Promise<Result<T, E>>` - Result object with either:
+### Why no timeout in tryCatch?
 
-- `{ ok: true, data: T, error: null }` on success
-- `{ ok: false, data: null, error: E }` on failure
-
-### `tryCatch<T, E>(promise, mapError?)`
-
-Wraps a Promise to always resolve with a discriminated union result object for superior type safety.
-All errors are normalized via `stderr()` before being passed to `mapError`.
-
-**Generic Parameters:**
-
-- `T` - The type of the success value (inferred from promise)
-- `E` - The type of the error value (defaults to `StdError`)
-
-**Parameters:**
-
-- `promise: Promise<T>` - Promise to wrap
-- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
-
-**Returns:** `Promise<Result<T, E>>` - Result object with either:
-
-- `{ ok: true, data: T, error: null }` on success
-- `{ ok: false, data: null, error: E }` on failure
-
-### `tryCatchStdErr<T, E>(fn, mapError?)`
-
-Wraps a synchronous or asynchronous function to always return a Result object.
-All errors are normalized via `stderr()` before being passed to `mapError`.
-
-**Generic Parameters:**
-
-- `T` - The type of the success value
-- `E` - The type of the error value (defaults to `StdError`)
-
-**Parameters:**
-
-- `fn: () => T | Promise<T>` - Function to execute (sync or async)
-- `mapError?: (stdErr: StdError) => E` - Optional error transformer that receives normalized StdError
-
-**Returns:** `Result<T, E>` for sync functions, `Promise<Result<T, E>>` for async functions
-
-## Type Definitions
+Timeouts should be implemented in your functions, not in the error handler:
 
 ```typescript
-// Result type for tryCatch
-type Result<T, E = unknown> =
-    | { ok: true; data: T; error: null } // Success
-    | { ok: false; data: null; error: E }; // Failure
-
-// Error shape with optional properties
-interface ErrorShape {
-    name?: string;
-    message?: string;
-    stack?: string;
-    cause?: unknown;
-    errors?: unknown;
-    [key: string]: unknown;
+async function fetchWithTimeout(url: string, ms: number) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ms);
+    try {
+        return await fetch(url, { signal: controller.signal });
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
-// Normalization options
-interface NormalizeOptions {
-    maxDepth?: number;
-    includeNonEnumerable?: boolean;
-    enableSubclassing?: boolean;
-    useAggregateError?: boolean;
-    useCauseError?: boolean;
-    patchToString?: boolean;
-    originalStack?: string;
-}
+const result = await tryCatch(() => fetchWithTimeout(url, 5000));
 ```
 
-## Why "stderr"?
+### Why are StdError properties mutable?
 
-The name "stderr" comes from the standard error stream in Unix-like systems, reflecting this library's purpose of standardizing error handling. Just as stderr provides a consistent channel for error output, this library provides a consistent format for error objects in JavaScript/TypeScript applications.
+To match standard `Error` behavior. Developers expect to mutate error messages and add properties:
 
-More importantly, it solves the real-world problem of "standard errors" - the fact that JavaScript errors aren't standard at all. Every library, framework, and API has its own error shape. `stderr` makes them all standard.
+```typescript
+const err = stderr('Initial');
+err.message = 'Updated with context';
+err.customField = additionalData;
+```
+
+### Why no Result utility functions?
+
+They encourage implicit error handling, which contradicts the library's philosophy. If you want functional chaining, use libraries designed for that (neverthrow, fp-ts).
+
+### Can I use this with my existing logger?
+
+Yes! Most loggers call `toString()` automatically:
+
+```typescript
+const err = stderr(error);
+logger.error('Failed:', err); // toString() called automatically
+```
+
+---
+
+## Documentation
+
+- **[ADR.md](./docs/ADR.md)** - Architecture Decision Records
+- **[BEST_PRACTICES.md](./docs/BEST_PRACTICES.md)** - Comprehensive guide with examples
+- **[TypeScript Coding Standard](./docs/TypeScript%20Coding%20Standard%20for%20Mission-Critical%20Systems.md)** - Standards reference
+
+---
+
+## Contributing
+
+Contributions welcome! Please:
+
+1. Follow existing code style
+2. Add tests for new features
+3. Update documentation
+4. Run `pnpm lint:fix` and `pnpm test` before submitting
+
+---
 
 ## License
 
 MIT © Michael L. Hobbs
+
+---
+
+## Changelog
+
+### v2.0.0 (2025-11-21)
+
+**Breaking Changes:**
+
+- Changed Result pattern: `data` → `value` property
+- Removed options: `originalStack`, `includeNonEnumerable`
+- Added options validation (throws on invalid input)
+
+**New Features:**
+
+- Bounded loops for DoS prevention
+- Validated `maxDepth` getter/setter
+- Refactored for modularity (functions ≤40 lines)
+- Comprehensive documentation (ADRs + Best Practices)
+- Git hooks for quality enforcement
+
+**Improvements:**
+
+- Simpler, more focused API
+- Clear, opinionated philosophy
+- Better TypeScript inference
+- Extensive testing (99%+ coverage + fuzzing + type tests)
+
+---
+
+**Made with ❤️ for better error handling**

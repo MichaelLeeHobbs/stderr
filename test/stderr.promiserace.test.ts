@@ -2,6 +2,7 @@
 // Test script to reproduce the fetch error handling issue with Promise.race
 
 import { stderr } from '../src';
+import * as console from 'node:console';
 
 // Enable toString patching for these tests
 // stderr.patchToString = true; // use stderr(e, {patchToString: true}) to avoid global side effects
@@ -96,6 +97,7 @@ describe('stderr with Promise.race and fetch errors', () => {
                 console.log('✓ toString() includes error name and message');
                 console.log('✓ toString() includes cause chain');
                 console.log('✓ toString() length:', toStringResult.length, 'characters');
+                console.log(toStringResult);
             }
         }, 10000);
     });
