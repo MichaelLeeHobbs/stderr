@@ -1,7 +1,7 @@
 // src/StdError.ts
 
 import { ErrorRecord, ErrorShape, isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
-import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen } from './utils';
+import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToString } from './utils';
 
 /**
  * Maximum depth for recursive error display in toString() and toJSON()
@@ -113,7 +113,33 @@ export class StdError extends Error implements ErrorShape {
 
         // Copy any additional properties
         if (options) {
-            const keysToSkip = new Set(['cause', 'errors', 'name', 'message', 'maxDepth']);
+            // Generate a list of all keys/props to skip by walking the entire prototype chain
+            const keysToSkip = new Set<string>([
+                'cause',
+                'errors',
+                'name',
+                'message',
+                'maxDepth',
+                'prototype', // Test: 'filters out prototype property'
+                '__proto__', // Security best practice
+                'constructor', // Good practice to avoid overwriting the link to the class
+            ]);
+
+            // Start with the current instance ('this')
+            // eslint-disable-next-line @typescript-eslint/no-this-alias
+            let currentObj = this;
+
+            // Loop up the chain until we run out of objects (null)
+            while (currentObj) {
+                // 1. Get all property names (strings) of the current level
+                Object.getOwnPropertyNames(currentObj).forEach(key => keysToSkip.add(key));
+
+                // 2. Get all symbols of the current level
+                Object.getOwnPropertySymbols(currentObj).forEach(sym => keysToSkip.add(sym.toString()));
+
+                // 3. Move up to the next prototype (e.g., from Instance -> Class -> Object -> null)
+                currentObj = Object.getPrototypeOf(currentObj);
+            }
 
             for (const key of Object.keys(options)) {
                 if (!keysToSkip.has(key)) {
@@ -320,7 +346,7 @@ export class StdError extends Error implements ErrorShape {
             return '{ ' + pairs.join(', ') + ' }';
         }
 
-        return String(value);
+        return unknownToString(value);
     }
 
     /**
@@ -426,15 +452,14 @@ export class StdError extends Error implements ErrorShape {
         const circularMsg = checkCircular(value, seen);
         if (circularMsg) return circularMsg;
 
+        // Functions
+        if (typeof value === 'function') return undefined; // Functions are not serializable
+
         // Error-shaped objects
-        if (isErrorShaped(value)) {
-            return this.serializeError(value as ErrorShape, depth, seen);
-        }
+        if (isErrorShaped(value)) return this.serializeError(value as ErrorShape, depth, seen);
 
         // Arrays
-        if (isArray(value)) {
-            return value.map(item => this.serializeValue(item, depth + 1, seen));
-        }
+        if (isArray(value)) return value.map(item => this.serializeValue(item, depth + 1, seen));
 
         // Plain objects
         if (isObject(value)) {
@@ -455,9 +480,10 @@ export class StdError extends Error implements ErrorShape {
 
             return result;
         }
-
+        /* node:coverage ignore next 4 */
+        // Should be impossible to reach here, but just in case
         // Fallback for unknown types
-        return String(value);
+        return unknownToString(value);
     }
 }
 

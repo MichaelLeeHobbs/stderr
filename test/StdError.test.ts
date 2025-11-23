@@ -242,7 +242,6 @@ describe('StdError', () => {
                 errors: { field: deepError },
             });
             const str = error.toString();
-            console.log(str);
             expect(str).toContain('[Max depth');
         });
 
@@ -529,6 +528,108 @@ describe('StdError', () => {
             const json = error.toJSON();
             expect(json.data).toBeDefined();
         });
+
+        // Fuzzing-discovered issues: dangerous property filtering
+        describe('dangerous property filtering (fuzzing-discovered)', () => {
+            it('filters out __proto__ property to prevent prototype pollution', () => {
+                const error = new StdError('Test', {
+                    __proto__: {},
+                    safeProperty: 'safe',
+                });
+                // Should still be Error instance (not corrupted)
+                expect(error).toBeInstanceOf(Error);
+                expect(error).toBeInstanceOf(StdError);
+                // Should not have __proto__ as own property
+                expect(Object.prototype.hasOwnProperty.call(error, '__proto__')).toBe(false);
+                // Safe property should work
+                expect(error.safeProperty).toBe('safe');
+            });
+
+            it('filters out toString property to prevent method overwrite', () => {
+                const error = new StdError('Test', {
+                    toString: 'not a function',
+                    code: 'E_TEST',
+                });
+                // toString should still be a function
+                expect(typeof error.toString).toBe('function');
+                // Should be able to call it
+                expect(() => error.toString()).not.toThrow();
+                const str = error.toString();
+                expect(typeof str).toBe('string');
+                expect(str).toContain('Test');
+                // Other property should work
+                expect(error.code).toBe('E_TEST');
+            });
+
+            it('filters out toJSON property to prevent method overwrite', () => {
+                const error = new StdError('Test', {
+                    toJSON: 'not a function',
+                    data: 'some data',
+                });
+                // toJSON should still be a function
+                expect(typeof error.toJSON).toBe('function');
+                // Should be able to call it
+                expect(() => error.toJSON()).not.toThrow();
+                expect(() => JSON.stringify(error)).not.toThrow();
+                // Other property should work
+                expect(error.data).toBe('some data');
+            });
+
+            it('filters out constructor property', () => {
+                const error = new StdError('Test', {
+                    constructor: 'malicious',
+                    value: 'safe',
+                });
+                // Constructor should still be StdError
+                expect(error.constructor).toBe(StdError);
+                expect(error.value).toBe('safe');
+            });
+
+            it('filters out valueOf property', () => {
+                const error = new StdError('Test', {
+                    valueOf: 'not a function',
+                });
+                expect(typeof error.valueOf).toBe('function');
+            });
+
+            it('filters out prototype property', () => {
+                const error = new StdError('Test', {
+                    prototype: {},
+                });
+                // Should not have prototype as own property
+                expect(Object.prototype.hasOwnProperty.call(error, 'prototype')).toBe(false);
+            });
+
+            it('filters out __defineGetter__ and similar dangerous properties', () => {
+                const error = new StdError('Test', {
+                    __defineGetter__: 'bad',
+                    __defineSetter__: 'bad',
+                    __lookupGetter__: 'bad',
+                    __lookupSetter__: 'bad',
+                    normalProp: 'good',
+                });
+                expect(error.normalProp).toBe('good');
+                // Dangerous properties should be filtered
+                expect(Object.prototype.hasOwnProperty.call(error, '__defineGetter__')).toBe(false);
+            });
+
+            it('handles object with __proto__ set to array without corruption', () => {
+                const input = { __proto__: [], message: 'test' };
+                const error = new StdError('Wrapper', input);
+                // Should still be Error instance
+                expect(error).toBeInstanceOf(Error);
+                expect(error).toBeInstanceOf(StdError);
+                expect(Array.isArray(error)).toBe(false);
+            });
+
+            it('handles object with __proto__ set to object without corruption', () => {
+                const input = { __proto__: {}, message: 'test' };
+                const error = new StdError('Wrapper', input);
+                // Should still be Error instance
+                expect(error).toBeInstanceOf(Error);
+                expect(error).toBeInstanceOf(StdError);
+            });
+        });
     });
 
     // =========================================================================
@@ -717,7 +818,7 @@ describe('StdError', () => {
                 const func = () => 42;
                 const error = new StdError('Test', { funcProp: func });
                 const json = error.toJSON();
-                expect(typeof json.funcProp).toBe('string');
+                expect(typeof json.funcProp).toEqual('undefined');
             });
 
             it('serializeValue handles symbol keys in objects', () => {

@@ -334,7 +334,7 @@ describe('stderr', () => {
             const input = { message: 'agg', errors: ['a', new Error('b'), { c: 1 }] };
             const err = stderr<ErrorShapeWithErrorsArray>(input); // useAggregateError: true (default)
             expect(err).toBeInstanceOf(StdError);
-            expect(err.name).toBe('Error'); // fixme: Received: "undefined"
+            expect(err.name).toBe('Error');
             expect(err.message).toBe('agg');
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors.length).toBe(3);
@@ -378,7 +378,7 @@ describe('stderr', () => {
             const input = { message: 'validation', errors: { fieldA: 'x', fieldB: new Error('y') } };
             const err = stderr<ErrorShapeWithErrorsObject>(input);
             expect(err).toBeInstanceOf(Error);
-            expect(err.name).toBe('Error'); // fixme: Received: "undefined"
+            expect(err.name).toBe('Error');
             expect(err.message).toBe('validation');
             expect(typeof err.errors).toBe('object');
             expect(err.errors.fieldA).toBeInstanceOf(Error);
@@ -407,7 +407,7 @@ describe('stderr', () => {
             const input = { message: 'single', errors: 42 };
             const err = stderr<ErrorShapeWithErrorsArray>(input);
             expect(err).toBeInstanceOf(StdError);
-            expect(err.name).toBe('AggregateError'); // fixme: Received: "undefined"
+            expect(err.name).toBe('AggregateError');
             expect(err.message).toBe('AggregateError'); // Defaults message (as per design)
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors.length).toBe(1);
@@ -763,6 +763,103 @@ describe('stderr', () => {
             expect(err).toBeInstanceOf(Error);
             expect(err.name).toBe('MyError');
             expect(err.message).toBe('[object Function]');
+        });
+    });
+
+    // =========================================================================
+    // Fuzzing-Discovered Issues: Dangerous Property Filtering
+    // =========================================================================
+    describe('dangerous property filtering (fuzzing-discovered)', () => {
+        it('filters out __proto__ to prevent prototype pollution', () => {
+            const input = { __proto__: {}, message: 'test', code: 'E_TEST' };
+            const err = stderr(input);
+            // Should still be Error instance
+            expect(err).toBeInstanceOf(Error);
+            expect(err).toBeInstanceOf(StdError);
+            // Should not have __proto__ as own property
+            expect(Object.prototype.hasOwnProperty.call(err, '__proto__')).toBe(false);
+            // Other properties should work
+            expect(err.code).toBe('E_TEST');
+        });
+
+        it('filters out toString to prevent method overwrite', () => {
+            const input = { toString: 'not a function', message: 'test' };
+            const err = stderr(input);
+            // toString should still be a function
+            expect(typeof err.toString).toBe('function');
+            expect(() => err.toString()).not.toThrow();
+            const str = err.toString();
+            expect(typeof str).toBe('string');
+        });
+
+        it('filters out toJSON to prevent method overwrite', () => {
+            const input = { toJSON: 'not a function', message: 'test' };
+            const err = stderr(input);
+            // toJSON should still be a function
+            expect(typeof err.toJSON).toBe('function');
+            expect(() => err.toJSON()).not.toThrow();
+            expect(() => JSON.stringify(err)).not.toThrow();
+        });
+
+        it('handles __proto__ array without corruption', () => {
+            const input = { __proto__: [], message: 'test' };
+            const err = stderr(input);
+            expect(err).toBeInstanceOf(Error);
+            expect(err).toBeInstanceOf(StdError);
+            expect(Array.isArray(err)).toBe(false);
+        });
+
+        it('handles __proto__ object without corruption', () => {
+            const input = { __proto__: {}, message: 'test' };
+            const err = stderr(input);
+            expect(err).toBeInstanceOf(Error);
+            expect(err).toBeInstanceOf(StdError);
+        });
+
+        it('filters out constructor property', () => {
+            const input = { constructor: 'malicious', message: 'test' };
+            const err = stderr(input);
+            expect(err.constructor).toBe(StdError);
+        });
+
+        it('filters out valueOf property', () => {
+            const input = { valueOf: 'not a function', message: 'test' };
+            const err = stderr(input);
+            expect(typeof err.valueOf).toBe('function');
+        });
+
+        it('filters out prototype property', () => {
+            const input = { prototype: {}, message: 'test' };
+            const err = stderr(input);
+            expect(Object.prototype.hasOwnProperty.call(err, 'prototype')).toBe(false);
+        });
+
+        it('filters all dangerous properties at once', () => {
+            const input = {
+                __proto__: {},
+                constructor: 'bad',
+                prototype: {},
+                toString: 'bad',
+                toJSON: 'bad',
+                valueOf: 'bad',
+                __defineGetter__: 'bad',
+                __defineSetter__: 'bad',
+                message: 'test',
+                safeProperty: 'good',
+            };
+            const err = stderr(input);
+            // Should be valid Error
+            expect(err).toBeInstanceOf(Error);
+            expect(err).toBeInstanceOf(StdError);
+            // Methods should work
+            expect(typeof err.toString).toBe('function');
+            expect(typeof err.toJSON).toBe('function');
+            expect(typeof err.valueOf).toBe('function');
+            // Safe property should be copied
+            expect(err.safeProperty).toBe('good');
+            // Dangerous properties should not exist
+            expect(Object.prototype.hasOwnProperty.call(err, '__proto__')).toBe(false);
+            expect(Object.prototype.hasOwnProperty.call(err, 'prototype')).toBe(false);
         });
     });
 });

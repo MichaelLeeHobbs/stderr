@@ -5,7 +5,27 @@ import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } f
 /**
  * Standard Error property keys that should be excluded when extracting custom properties
  */
-export const STANDARD_ERROR_KEYS = new Set(['name', 'message', 'stack', 'cause', 'errors']);
+export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors']);
+export const STANDARD_OBJECT_KEYS = new Set<string>([
+    'constructor',
+    'toString',
+    'toJSON',
+    'defineGetter',
+    'defineSetter',
+    'hasOwnProperty',
+    'lookupGetter',
+    'lookupSetter',
+    'isPrototypeOf',
+    'propertyIsEnumerable',
+    'valueOf',
+    'proto',
+    'prototype',
+    '__proto__',
+    'toLocaleString',
+    ...Object.getOwnPropertyNames(Object.prototype),
+    ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
+]);
+export const DEFAULT_EXCLUDE_KEYS = new Set<string>([...STANDARD_ERROR_KEYS, ...STANDARD_OBJECT_KEYS]);
 
 /**
  * Options for extracting custom keys from objects
@@ -32,7 +52,7 @@ export interface GetCustomKeysOptions {
  * ```
  */
 export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): (string | symbol)[] {
-    const { includeNonEnumerable = false, excludeKeys = STANDARD_ERROR_KEYS } = options;
+    const { includeNonEnumerable = false, excludeKeys = DEFAULT_EXCLUDE_KEYS } = options;
 
     if (includeNonEnumerable) {
         // Use Reflect.ownKeys to get all keys including non-enumerable
@@ -48,17 +68,13 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
 
     // String keys
     for (const key of Object.keys(obj)) {
-        if (!excludeKeys.has(key)) {
-            keys.push(key);
-        }
+        if (!excludeKeys.has(key)) keys.push(key);
     }
 
     // Symbol keys (enumerable only)
     for (const sym of Object.getOwnPropertySymbols(obj)) {
         const desc = Object.getOwnPropertyDescriptor(obj, sym);
-        if (desc?.enumerable && !excludeKeys.has(sym.toString())) {
-            keys.push(sym);
-        }
+        if (desc?.enumerable && !excludeKeys.has(sym.toString())) keys.push(sym);
     }
 
     return keys;
