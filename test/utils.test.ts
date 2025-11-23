@@ -64,12 +64,50 @@ describe('unknownToString', () => {
         expect(unknownToString(function* generator() {})).toBe('[object GeneratorFunction]');
     });
 
-    it('should handle dates', () => {
+    it('should handle edges cases', () => {
         expect(unknownToString(new Date())).toBe('[object Date]');
+        expect(unknownToString(/test/)).toBe('[object RegExp]');
+        expect(unknownToString(Object.create(null))).toBe('[object Object]');
     });
 
-    it('should handle regex', () => {
-        expect(unknownToString(/test/)).toBe('[object RegExp]');
+    it('should handle poisoned objects', () => {
+        // Case 1: Poisoned Symbol.toStringTag
+        // The function catches the error and falls back to reading constructor.name
+        const toxicInput = {
+            get [Symbol.toStringTag]() {
+                throw new Error('Intentional error to trigger catch block');
+            },
+        };
+        // Since toxicInput is a plain object, constructor.name is 'Object'
+        expect(unknownToString(toxicInput)).toBe('[object Object]');
+
+        // Case 2: Poisoned Symbol.toStringTag AND Poisoned Constructor
+        // The function catches the first error, attempts to read constructor,
+        // catches the second error, and returns the final warning.
+        const maliciousInput = {
+            get [Symbol.toStringTag]() {
+                throw new Error('No toString allowed');
+            },
+            get constructor() {
+                throw new Error('No constructor inspection allowed');
+            },
+        };
+        expect(unknownToString(maliciousInput)).toBe('[Possible Malicious Object]');
+
+        // Case 3: Poisoned function's Symbol.toStringTag
+        // Create a standard function
+        const toxicFunction = function () {};
+
+        // Poison the Symbol.toStringTag property specifically on this function
+        // so that Object.prototype.toString.call(toxicFunction) throws.
+        Object.defineProperty(toxicFunction, Symbol.toStringTag, {
+            get() {
+                throw new Error('Intentional error to trigger catch block');
+            },
+            configurable: true,
+        });
+
+        expect(unknownToString(toxicFunction)).toBe('[Function]');
     });
 });
 

@@ -1,5 +1,6 @@
 // test/StdError.test.ts
 import { StdError } from '../src/StdError';
+import * as console from 'node:console';
 
 describe('StdError', () => {
     describe('constructor', () => {
@@ -183,6 +184,83 @@ describe('StdError', () => {
             const str = error.toString();
             expect(str).toContain('{}');
         });
+
+        it('defaults to "Error" when name is falsy', () => {
+            const error = new StdError('Test error', { name: 'CustomError' });
+            // Mutate name to undefined to test the fallback
+            // @ts-expect-error - Testing runtime behavior when name is undefined
+            error.name = undefined;
+            const str = error.toString();
+            expect(str).toContain('Error: Test error');
+            expect(str).not.toContain('CustomError');
+        });
+
+        it('formats undefined property values as "undefined"', () => {
+            const error = new StdError('Test error');
+            // Add a property with undefined value
+            error.customProp = undefined;
+            const str = error.toString();
+            expect(str).toContain('customProp: undefined');
+        });
+
+        it('handles maxDepth in nested errors array with error-shaped values', () => {
+            // Create deeply nested error-shaped objects in errors array
+            const deepError = {
+                name: 'Level3',
+                message: 'Deep',
+                errors: [
+                    {
+                        name: 'Level4',
+                        message: 'Deeper',
+                        errors: [{ name: 'Level5', message: 'Too deep' }],
+                    },
+                ],
+            };
+            const error = new StdError('Root', {
+                maxDepth: 2,
+                errors: [deepError],
+            });
+            const str = error.toString();
+            expect(str).toContain('[Max depth');
+        });
+
+        it('handles maxDepth in nested errors object with error-shaped values', () => {
+            // Create deeply nested error-shaped objects in errors object
+            const deepError = {
+                name: 'Level3',
+                message: 'Deep',
+                errors: {
+                    nested: {
+                        name: 'Level4',
+                        message: 'Deeper',
+                        errors: { deep: { name: 'Level5', message: 'Too deep' } },
+                    },
+                },
+            };
+            const error = new StdError('Root', {
+                maxDepth: 2,
+                errors: { field: deepError },
+            });
+            const str = error.toString();
+            console.log(str);
+            expect(str).toContain('[Max depth');
+        });
+
+        it('detects circular reference in nested errors array', () => {
+            const circular: { name: string; message: string; errors?: unknown } = { name: 'Circular', message: 'Test' };
+            circular.errors = [circular]; // Self-reference in errors array
+            const error = new StdError('Root', { errors: [circular] });
+            const str = error.toString();
+            expect(str).toContain('[Circular]');
+        });
+
+        it('detects circular reference in nested errors object', () => {
+            const circular: { name: string; message: string; errors?: unknown } = { name: 'Circular', message: 'Test' };
+            circular.errors = { self: circular }; // Self-reference in errors object
+            const error = new StdError('Root', { errors: { field: circular } });
+            const str = error.toString();
+            expect(str).toContain('[Circular]');
+        });
     });
 
     describe('toJSON()', () => {
@@ -249,6 +327,7 @@ describe('StdError', () => {
             const deep1 = new StdError('Level 1', { cause: deep2 });
             const error = new StdError('Level 0', { cause: deep1, maxDepth: 2 });
             const json = error.toJSON();
+            console.log(json);
             expect(json.message).toBe('Level 0');
             expect((json.cause as Record<string, unknown>).message).toBe('Level 1');
             expect((json.cause as Record<string, unknown>).cause).toBe('[Max depth of 2 reached]');
@@ -306,6 +385,77 @@ describe('StdError', () => {
             const json = error.toJSON();
             expect(json.tags).toEqual(['error', 'critical']);
             expect(json.codes).toEqual([500, 503]);
+        });
+
+        it('handles maxDepth in nested errors array with error-shaped values', () => {
+            // Create deeply nested error-shaped objects in errors array
+            const deepError = {
+                name: 'Level3',
+                message: 'Deep',
+                errors: [
+                    {
+                        name: 'Level4',
+                        message: 'Deeper',
+                        errors: [{ name: 'Level5', message: 'Too deep' }],
+                    },
+                ],
+            };
+            const error = new StdError('Root', {
+                maxDepth: 2,
+                errors: [deepError],
+            });
+            const json = error.toJSON();
+            expect(json.errors).toHaveLength(1);
+            interface ErrorShape {
+                name: string;
+                message: string;
+                errors: Array<ErrorShape>;
+            }
+            const err = (json.errors as Array<ErrorShape>)[0];
+            expect(err.name).toBe('Level3');
+            expect(err.errors).toHaveLength(1);
+            expect(err.errors[0]).toBe('[Max depth of 2 reached]');
+        });
+
+        it('detects circular reference in nested errors array', () => {
+            const circular: { name: string; message: string; errors?: unknown } = { name: 'Circular', message: 'Test' };
+            circular.errors = [circular]; // Self-reference in errors array
+            const error = new StdError('Root', { errors: [circular] });
+            const json = error.toJSON();
+            console.log(JSON.stringify(json, null, 2));
+            interface ErrorShape {
+                name: string;
+                message: string;
+                errors: Array<ErrorShape>;
+            }
+            expect(json.errors).toHaveLength(1);
+            expect((json.errors as Array<ErrorShape>)[0].errors[0]).toBe('[Circular]');
+        });
+
+        it('detects circular reference in nested errors object', () => {
+            const circular: { name: string; message: string; errors?: unknown } = { name: 'Circular', message: 'Test' };
+            circular.errors = { self: circular }; // Self-reference in errors object
+            const error = new StdError('Root', { errors: { field: circular } });
+            const json = error.toJSON();
+            console.log(JSON.stringify(json, null, 2));
+
+            interface ErrorShape {
+                name: string;
+                message: string;
+                errors: Record<string, ErrorShape>;
+            }
+
+            expect(json.errors).toBeDefined();
+            expect((json.errors as Record<string, ErrorShape>).field.errors.self).toBe('[Circular]');
+        });
+
+        it('defaults to "Error" when name is falsy', () => {
+            const error = new StdError('Test error', { name: 'CustomError' });
+            // Mutate name to undefined to test the fallback
+            // @ts-expect-error - Testing runtime behavior when name is undefined
+            error.name = undefined;
+            const json = error.toJSON();
+            expect(json.name).toBe('Error');
         });
     });
 

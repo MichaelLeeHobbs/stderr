@@ -1,12 +1,6 @@
 // src/types.ts
 
-/**
- * Dictionary type for objects with string or symbol keys and unknown values.
- * More specific than the previous version with separate index signatures.
- */
-export type Dictionary = Record<string | symbol, unknown>;
-
-export type ErrorRecord = Dictionary;
+export type ErrorRecord = Record<string | symbol, unknown>;
 
 export type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
@@ -55,7 +49,7 @@ export type ErrorShapeWithErrorsArray = WithRequiredType<ErrorShape, 'errors', E
  * ErrorShape with errors as a keyed object/dictionary of errors.
  * Used for non-standard error collections with named errors.
  */
-export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', Dictionary>;
+export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', ErrorRecord>;
 
 /* Helper Types */
 /**

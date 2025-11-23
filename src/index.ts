@@ -3,5 +3,5 @@ export { StdError, StdErrorShape } from './StdError';
 export { stderr } from './stderr';
 export { tryCatch } from './tryCatch';
 export type { NormalizeOptions } from './stderr';
-export type { ErrorShape, ErrorRecord, Dictionary } from './types';
+export type { ErrorShape, ErrorRecord } from './types';
 export type { Result } from './tryCatch';

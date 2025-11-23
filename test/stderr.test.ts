@@ -1,6 +1,6 @@
 // test/stderr.test.ts
 import { stderr, StdError } from '../src';
-import { Dictionary, ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
+import { ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
 
 describe('stderr', () => {
     // =========================================================================
@@ -187,22 +187,7 @@ describe('stderr', () => {
     // Stack Trace Handling
     // =========================================================================
     describe('Stack Trace Handling', () => {
-        it('always preserves original stack trace from Error inputs', () => {
-            const original = new Error('original');
-            const originalStack = original.stack;
-            const err = stderr(original);
-            expect(err.stack).toBe(originalStack);
-        });
-
-        it('preserves original stack even through normalization', () => {
-            class MyError extends Error {
-                constructor() {
-                    super('my error');
-                    throw new Error('oops'); // Force constructor failure
-                }
-            }
-
-            (globalThis as Dictionary).MyError = MyError;
+        it('preserves original stack trace from Error inputs', () => {
             const input = new Error('original stack preservation');
             input.name = 'MyError';
             const originalStack = input.stack;

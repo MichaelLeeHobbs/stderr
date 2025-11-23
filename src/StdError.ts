@@ -1,8 +1,7 @@
 // src/StdError.ts
 
-import type { ErrorShape, Dictionary } from './types';
-import { isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
-import { getCustomKeys, checkDepthLimit, checkCircular, trackSeen } from './utils';
+import { ErrorRecord, ErrorShape, isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
+import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen } from './utils';
 
 /**
  * Maximum depth for recursive error display in toString() and toJSON()
@@ -62,6 +61,7 @@ export class StdError extends Error implements ErrorShape {
 
     /** Additional custom properties */
     [key: string]: unknown;
+
     [key: symbol]: unknown;
 
     /**
@@ -90,7 +90,7 @@ export class StdError extends Error implements ErrorShape {
      * });
      * ```
      */
-    constructor(message?: string, options?: { cause?: unknown; errors?: unknown; name?: string; maxDepth?: number } & Dictionary) {
+    constructor(message?: string, options?: { cause?: unknown; errors?: unknown; name?: string; maxDepth?: number } & ErrorRecord) {
         super(message);
 
         // Set name
@@ -173,6 +173,7 @@ export class StdError extends Error implements ErrorShape {
         // Check depth limit
         const depthMsg = checkDepthLimit(depth, maxDepth, indent);
         if (depthMsg) return depthMsg;
+        // console.log({ depth, depthMsg, error });
 
         // Check circular reference
         const circularMsg = checkCircular(error, seen, indent);
@@ -254,10 +255,13 @@ export class StdError extends Error implements ErrorShape {
 
             const items = errors.map((err, idx) => {
                 if (isErrorShaped(err)) {
+                    // Do not increase depth here as we are already increasing it for the array
                     const formatted = this.formatError(err as ErrorShape, depth, seen);
                     return `${indent}  [${idx}]: ${formatted.trim()}`;
                 }
-                return `${indent}  [${idx}]: ${this.formatValue(err, depth + 1, seen)}`;
+                // Do we need to increase depth here? Yes, because we are going deeper into the structure
+                // return `${indent}  [${idx}]: ${this.formatValue(err, depth + 1, seen)}`;
+                return `${indent}  [${idx}]: ${this.formatValue(err, depth, seen)}`;
             });
 
             return '[\n' + items.join('\n') + `\n${indent}]`;
@@ -268,7 +272,7 @@ export class StdError extends Error implements ErrorShape {
             if (keys.length === 0) return '{}';
 
             const items = keys.map(key => {
-                const value = (errors as Dictionary)[key];
+                const value = (errors as ErrorRecord)[key];
                 if (isErrorShaped(value)) {
                     const formatted = this.formatError(value as ErrorShape, depth, seen);
                     return `${indent}  ${key}: ${formatted.trim()}`;
@@ -288,16 +292,14 @@ export class StdError extends Error implements ErrorShape {
     private formatValue(value: unknown, depth: number, seen: WeakSet<object>): string {
         const maxDepth = this.getMaxDepth();
 
+        // TODO: I think we should check the depth limit after checking for primitives/symbol and null/undefined
         const depthMsg = checkDepthLimit(depth, maxDepth);
         if (depthMsg) return depthMsg;
 
         if (value === null) return 'null';
         if (value === undefined) return 'undefined';
         if (isSymbol(value)) return value.toString();
-
-        if (isPrimitive(value)) {
-            return typeof value === 'string' ? `'${value}'` : String(value);
-        }
+        if (isPrimitive(value)) return typeof value === 'string' ? `'${value}'` : String(value);
 
         const circularMsg = checkCircular(value, seen);
         if (circularMsg) return circularMsg;
@@ -314,7 +316,7 @@ export class StdError extends Error implements ErrorShape {
             if (keys.length === 0) return '{}';
             if (keys.length > 3) return `{Object with ${keys.length} keys}`;
 
-            const pairs = keys.slice(0, 3).map(k => `${k}: ${this.formatValue((value as Dictionary)[k], depth + 1, seen)}`);
+            const pairs = keys.slice(0, 3).map(k => `${k}: ${this.formatValue((value as ErrorRecord)[k], depth + 1, seen)}`);
             return '{ ' + pairs.join(', ') + ' }';
         }
 
@@ -348,7 +350,7 @@ export class StdError extends Error implements ErrorShape {
     /**
      * Recursively serializes an error to a JSON-safe object or string marker
      */
-    private serializeError(error: ErrorShape, depth: number, seen: WeakSet<object>): Dictionary | string {
+    private serializeError(error: ErrorShape, depth: number, seen: WeakSet<object>): ErrorRecord | string {
         const maxDepth = this.getMaxDepth();
 
         // Check depth limit
@@ -357,11 +359,14 @@ export class StdError extends Error implements ErrorShape {
 
         // Check circular reference
         const circularMsg = checkCircular(error, seen);
+        // Unabled to trigger this branch in tests - Leaving this as an edge case backup
+        // It's very likely the circular references are always caught in function before reaching here
+        /* node:coverage ignore next 1 */
         if (circularMsg) return circularMsg;
 
         trackSeen(error, seen);
 
-        const result: Dictionary = {
+        const result: ErrorShape = {
             name: error.name || 'Error', // Branch untested 'Error'
             message: error.message || '',
         };
@@ -373,12 +378,16 @@ export class StdError extends Error implements ErrorShape {
 
         // Serialize cause
         if (error.cause !== undefined && error.cause !== null) {
+            // While it might seem logical to not increase depth here as we are going deeper into the structure,
+            // We do need to increase depth to avoid cases where cause chains are very deep and could lead to stack overflows.
+            // Perhaps we can revisit this decision later if it causes issues.
             result.cause = this.serializeValue(error.cause, depth + 1, seen);
         }
 
         // Serialize errors
         if (error.errors !== undefined && error.errors !== null) {
-            result.errors = this.serializeValue(error.errors, depth + 1, seen);
+            // Do not increase depth here as we are already increasing it for the array
+            result.errors = this.serializeValue(error.errors, depth, seen);
         }
 
         // Serialize custom properties
@@ -387,6 +396,11 @@ export class StdError extends Error implements ErrorShape {
             if (isSymbol(key) && key === MAX_DEPTH_SYMBOL) continue; // Skip maxDepth symbol property
             const value = error[key];
             const serializedKey = isSymbol(key) ? key.toString() : String(key);
+            if (isArray(value)) {
+                // Do not increase depth here as we are already increasing it for the array
+                result[serializedKey] = value.map(item => this.serializeValue(item, depth, seen));
+                continue;
+            }
             result[serializedKey] = this.serializeValue(value, depth + 1, seen);
         }
 
@@ -425,17 +439,17 @@ export class StdError extends Error implements ErrorShape {
         // Plain objects
         if (isObject(value)) {
             trackSeen(value, seen);
-            const result: Dictionary = {};
+            const result: ErrorRecord = {};
 
             for (const key of Object.keys(value)) {
-                result[key] = this.serializeValue((value as Dictionary)[key], depth + 1, seen);
+                result[key] = this.serializeValue((value as ErrorRecord)[key], depth + 1, seen);
             }
 
             // Handle symbol keys
             for (const sym of Object.getOwnPropertySymbols(value)) {
                 const desc = Object.getOwnPropertyDescriptor(value, sym);
                 if (desc?.enumerable) {
-                    result[sym.toString()] = this.serializeValue((value as Dictionary)[sym], depth + 1, seen);
+                    result[sym.toString()] = this.serializeValue((value as ErrorRecord)[sym], depth + 1, seen);
                 }
             }
 

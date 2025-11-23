@@ -65,11 +65,16 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
 }
 
 /**
- * Checks if we've reached the maximum depth for recursive operations.
+ * Checks if the current depth exceeds the maximum allowed depth.
  * Returns a standardized depth limit message if exceeded, null otherwise.
  *
- * @param depth - Current depth level
- * @param maxDepth - Maximum allowed depth
+ * maxDepth is EXCLUSIVE: means "show this many levels"
+ * - maxDepth: 1 shows depth 0 only (root)
+ * - maxDepth: 2 shows depths 0, 1 (root + 1 level)
+ * - maxDepth: 3 shows depths 0, 1, 2 (root + 2 levels)
+ *
+ * @param depth - Current depth level (0-based)
+ * @param maxDepth - Maximum number of levels to show (exclusive)
  * @param indent - Optional indentation prefix
  * @returns Depth limit message or null
  */
@@ -102,30 +107,59 @@ export function trackSeen(value: unknown, seen: WeakSet<object>): void {
 }
 
 export const unknownToString = (input: unknown): string => {
+    // 1. Handle Strings
     if (isString(input)) return input;
 
+    // 2. Handle Primitives (number, boolean, symbol, undefined, null)
     if (isPrimitive(input)) return String(input);
 
-    // Handle functions explicitly before error-shaped check
+    // 3. Handle Functions explicitly
     // (functions have a 'name' property which could confuse error detection)
-    if (typeof input === 'function') return Object.prototype.toString.call(input);
+    if (typeof input === 'function') {
+        // Function.prototype.toString returns the source code of the function
+        // usually safe, but we wrap it just in case
+        try {
+            return Object.prototype.toString.call(input);
+        } catch {
+            return '[Function]';
+        }
+    }
 
     if (isObject(input)) {
         try {
-            // Avoid JSON.stringify({}) for errors; prefer their message/name if present.
+            // 4. Handle Error Objects (prefer message/name over generic object string)
             if (isErrorShaped(input)) {
                 if (input.message != null) return String(input.message);
                 if (input.name != null) return String(input.name);
             }
 
-            return Object.prototype.toString.call(input); // Safer fallback
+            // 5. Standard Object Stringification
+            // This throws if [Symbol.toStringTag] is poisoned
+            return Object.prototype.toString.call(input);
         } catch {
-            return String(input);
+            // --- MALICIOUS / BROKEN OBJECT HANDLING ---
+
+            // Attempt to salvage some information safely
+            try {
+                // Try to read the constructor name.
+                // This avoids the Symbol.toStringTag trap.
+                const constructorName = (input as object).constructor?.name;
+
+                if (constructorName && typeof constructorName === 'string') {
+                    return `[object ${constructorName}]`;
+                }
+            } catch {
+                // Accessing .constructor failed.
+                // The object is aggressively toxic (e.g., throwing getters on all properties).
+            }
+
+            // Final fallback for objects that refuse all inspection
+            return '[Possible Malicious Object]';
         }
     }
-
-    // Fallback for any other type, that somehow isn't caught above
-    return String(input);
+    /* node:coverage ignore next 3 */
+    // This should be impossible to reach
+    return `Unknown type: ${typeof input}`;
 };
 
 export const primitiveToError = (input: Primitive): StdError => {

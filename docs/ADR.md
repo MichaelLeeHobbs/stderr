@@ -2,7 +2,21 @@
 
 **Project**: stderr-lib  
 **Version**: 2.0  
-**Last Updated**: 2025-11-21
+**Last Updated**: 2025-11-23
+
+---
+
+## Table of Contents
+
+- [Introduction](#introduction)
+- [ADR-001: Recursion with Bounded Depth](#adr-001-recursion-with-bounded-depth)
+- [ADR-002: maxDepth Semantics](#adr-002-maxdepth-semantics)
+- [ADR-003: Bounded Loops for Safety](#adr-003-bounded-loops-for-safety)
+- [ADR-004: No Timeouts in tryCatch](#adr-004-no-timeouts-in-trycatch)
+- [ADR-005: Errors Are Mutable](#adr-005-errors-are-mutable)
+- [ADR-006: No Built-in Sanitization](#adr-006-no-built-in-sanitization)
+- [Summary of v2.0 Changes](#summary-of-v20-changes)
+- [Decision Log](#decision-log)
 
 ---
 
@@ -51,105 +65,101 @@ TypeScript/JavaScript lacks guaranteed tail-call optimization. Mission-critical 
 ✅ Web apps, Node.js, business software, non-critical medical software  
 ❌ Critical real-time systems, avionics, medical devices, automotive safety
 
-_Note: JS/TS is fundamentally unsuitable for hard real-time due to GC, JIT, non-deterministic timing_
+> _Note: JS/TS is fundamentally unsuitable for hard real-time due to GC, JIT, non-deterministic timing_
 
 ---
 
-## ADR-002: No Result Utility Functions
+## ADR-002: maxDepth Semantics
 
 **Status**: ✅ Accepted  
-**Date**: 2025-11-21
+**Date**: 2025-11-21  
+**Updated**: 2025-11-23
 
 ### Context
 
-Initial library included `mapResult`, `unwrapOr`, `andThen`, `orElse` for functional-style Result handling. These enabled chaining and transformations without explicit error checks.
+The `maxDepth` option controls how deeply the library recurses when formatting errors. We needed to define what "depth" means and how it's counted to ensure predictable, intuitive behavior.
 
 ### Decision
 
-**Removed all Result utility functions.**
+**maxDepth uses EXCLUSIVE semantics: `maxDepth: N` means "show N levels".**
 
-Deleted: `mapResult`, `unwrapOr`, `andThen`, `orElse` (~70 lines removed)
+**Depth Counting Rules**:
+
+1. **Root error = depth 0**
+2. **Each nested structure increments depth** (cause, errors object, nested objects)
+3. **Arrays are transparent** - the array container itself doesn't increment depth, but its elements do
 
 ### Rationale
 
-**Core Philosophy**: `tryCatch` exists to **force explicit error handling**
-
-Utilities violated this by:
-
-- Enabling error swallowing (`unwrapOr` returns default without logging)
-- Encouraging chaining without error checks (`mapResult`, `andThen`)
-- Recreating promise chaining anti-pattern (defeats the purpose)
+1. **Exclusive is Intuitive**: Users expect `maxDepth: 2` to mean "show 2 levels" not "show up to index 2"
+2. **Arrays are Containers**: Arrays are lists - the container isn't meaningful structure, only the items matter
+3. **Objects are Structure**: Objects with keys represent meaningful hierarchical structure
+4. **Consistent Behavior**: Same depth counting for `toString()` and `toJSON()`
 
 ### Examples
 
-```typescript
-// ❌ BAD: Utilities hide error handling
-const value = unwrapOr(
-    mapResult(result, x => x * 2),
-    0
-);
-// Where's the error logged? Nowhere!
+#### Basic Cause Chain
 
-// ✅ GOOD: Explicit error handling
-const result = tryCatch(() => compute());
-if (!result.ok) {
-    logger.error('Compute failed', result.error);
-    return 0;
-}
-return result.value * 2;
+```typescript
+const error = new StdError('Root', {
+    maxDepth: 2,
+    cause: new Error('Level 1', {
+        cause: new Error('Hidden'),
+    }),
+});
+
+// Shows 2 levels:
+// Root                <- depth 0
+//   [cause]: Level 1  <- depth 1
+//     [cause]: [Max depth of 2 reached]
 ```
 
-### For Users Who Want Chaining
+#### Errors Array (Transparent Container)
 
-Use libraries designed for that purpose:
+```typescript
+const error = new StdError('Root', {
+    maxDepth: 2,
+    errors: [new Error('Error 1'), new Error('Error 2', { cause: new Error('Hidden') })],
+});
 
-- **neverthrow**: Functional Result library
-- **fp-ts**: Either type with full FP utilities
-- **Write your own**: Functions are simple to implement if truly needed
+// Array doesn't count as depth:
+// Root                      <- depth 0
+//   [errors]: [             <- container (no depth increment)
+//     Error 1               <- depth 1
+//     Error 2               <- depth 1
+//       [cause]: [Max depth of 2 reached]
+//   ]
+```
 
-### Impact
+#### Errors Object (Counts as Depth)
 
-**Breaking Change**: v1.x → v2.0  
-**Migration**: Replace utility calls with explicit error handling (better pattern)  
-**Benefit**: Simpler library with clear, opinionated philosophy
+```typescript
+const error = new StdError('Root', {
+    maxDepth: 2,
+    errors: {
+        field: new Error('Error', { cause: new Error('Hidden') }),
+    },
+});
+
+// Object counts as depth:
+// Root                         <- depth 0
+//   [errors]: {                <- depth 1 (object structure)
+//     field: Error             <- depth 1 (value in object)
+//       [cause]: [Max depth of 2 reached]
+//   }
+```
+
+### Default maxDepth
+
+**Default: 8 levels**
+
+- Sufficient for 99.99% of real-world error chains
+- Prevents infinite recursion in pathological cases
+- Not Java-level nesting
 
 ---
 
-## ADR-003: Result Pattern Uses `value` Property
-
-**Status**: ✅ Accepted  
-**Date**: 2025-11-21
-
-### Context
-
-Initial Result type used `data` property. TypeScript ecosystem standard is `value`.
-
-### Decision
-
-**Changed Result pattern from `data` to `value`.**
-
-```typescript
-// Before (v1.x)
-type Result<T, E> = { ok: true; data: T; error: null } | { ok: false; data: null; error: E };
-
-// After (v2.0)
-type Result<T, E> = { ok: true; value: T; error: null } | { ok: false; value: null; error: E };
-```
-
-### Rationale
-
-1. **Standard Compliance**: Aligns with TypeScript Result pattern conventions
-2. **Consistency**: Matches neverthrow, fp-ts, and other TS libraries
-3. **Clarity**: `value` is more descriptive than `data`
-
-### Impact
-
-**Breaking Change**: v1.x → v2.0  
-**Migration**: Replace `result.data` with `result.value`
-
----
-
-## ADR-004: Bounded Loops for Safety
+## ADR-003: Bounded Loops for Safety
 
 **Status**: ✅ Accepted  
 **Date**: 2025-11-21
@@ -187,85 +197,7 @@ for (const key of boundedKeys) {
 
 ---
 
-## ADR-005: Simplified Options (Removed originalStack, includeNonEnumerable)
-
-**Status**: ✅ Accepted  
-**Date**: 2025-11-21
-
-### Context
-
-Library had options for `originalStack` (override stack trace) and `includeNonEnumerable` (control property copying).
-
-### Decision
-
-**Removed both options. Behavior is now fixed.**
-
-- **Stack traces**: Always preserved from original error
-- **Non-enumerable properties**: Always included (complete error capture)
-
-### Rationale
-
-1. **Simplicity**: Fewer options = easier to use and understand
-2. **Correct Defaults**: Original behavior was always the right choice
-3. **No Valid Use Cases**:
-    - Why would you want to replace original stack?
-    - Why would you skip non-enumerable properties?
-
-### Impact
-
-**Breaking Change**: v1.x → v2.0 (removed options)  
-**Migration**: Remove these options from calls (behavior unchanged for defaults)
-
----
-
-## ADR-006: Options Validation
-
-**Status**: ✅ Accepted  
-**Date**: 2025-11-21
-
-### Context
-
-Options were not validated, allowing invalid values to cause runtime issues.
-
-### Decision
-
-**All options are validated on input.**
-
-`maxDepth`:
-
-- Must be integer
-- Range: 1-1000
-- Validated via getter/setter AND on function call
-- Throws `TypeError` or `RangeError` for invalid values
-
-### Rationale
-
-1. **Fail Fast**: Catch configuration errors immediately
-2. **Clear Errors**: Descriptive error messages for invalid inputs
-3. **Safety**: Prevents edge cases from invalid configurations
-
-### Implementation
-
-```typescript
-// Validation on stderr.maxDepth assignment
-Object.defineProperty(stderr, 'maxDepth', {
-    set(value: number) {
-        if (!Number.isInteger(value)) throw new TypeError('maxDepth must be an integer');
-        if (value < 1 || value > 1000) throw new RangeError('maxDepth must be between 1 and 1000');
-        _maxDepth = value;
-    },
-});
-
-// Validation on options parameter
-if (options.maxDepth !== undefined) {
-    if (!Number.isInteger(options.maxDepth)) throw new TypeError('maxDepth must be an integer');
-    if (options.maxDepth < 1 || options.maxDepth > 1000) throw new RangeError('maxDepth must be between 1 and 1000');
-}
-```
-
----
-
-## ADR-007: No Timeouts in tryCatch
+## ADR-004: No Timeouts in tryCatch
 
 **Status**: ✅ Accepted  
 **Date**: 2025-11-21
@@ -308,7 +240,7 @@ Document in README that users should implement timeouts in their functions, not 
 
 ---
 
-## ADR-008: Errors Are Mutable
+## ADR-005: Errors Are Mutable
 
 **Status**: ✅ Accepted  
 **Date**: 2025-11-21
@@ -343,7 +275,7 @@ This is acceptable for a logging/error-handling library. Not suitable for missio
 
 ---
 
-## ADR-009: Security - No Additional Sanitization
+## ADR-006: No Built-in Sanitization
 
 **Status**: ✅ Accepted  
 **Date**: 2025-11-21
@@ -383,57 +315,6 @@ Document best practices for handling sensitive data in errors.
 
 ---
 
-## ADR-010: Refactored Functions for Modularity
-
-**Status**: ✅ Accepted  
-**Date**: 2025-11-21  
-**Updated**: 2025-11-23
-
-### Context
-
-Original `normalizeObjectToError` was ~150 lines with mixed concerns.
-
-### Decision
-
-**Broke down large functions into focused helpers (≤40 lines each).**
-
-Created helpers:
-
-- `normalizeCause()` - 30 lines
-- `normalizeErrorsArray()` - 25 lines
-- `normalizeErrorsSingle()` - 18 lines
-- `normalizeErrorsObject()` - 37 lines
-
-### Rationale
-
-1. **Readability**: Each function has single responsibility
-2. **Testability**: Helpers can be tested independently
-3. **Maintainability**: Easier to understand and modify
-4. **Compliance**: Meets mission-critical standard (≤40 lines per function)
-
-### Impact
-
-Main function reduced from ~150 lines to ~70 lines. Total code slightly longer (~180 lines) but much more maintainable.
-
-### Implementation Note: Symbol for Internal State
-
-To prevent property name collisions with real-world errors, internal StdError metadata (like `maxDepth`) is stored using JavaScript Symbols:
-
-```typescript
-const MAX_DEPTH_SYMBOL = Symbol('stderr_maxDepth');
-```
-
-**Benefits**:
-
-- Won't collide with user error properties (even if they have `_maxDepth`)
-- Won't appear in `Object.keys()`, `for...in`, `JSON.stringify()`
-- Won't leak into error output (`toString()`, `toJSON()`)
-- Still accessible internally via `this[MAX_DEPTH_SYMBOL]`
-
-This ensures internal state remains truly private and isolated from user data.
-
----
-
 ## Summary of v2.0 Changes
 
 ### Breaking Changes
@@ -458,18 +339,14 @@ This ensures internal state remains truly private and isolated from user data.
 
 ## Decision Log
 
-| ADR | Title                        | Status      | Impact                      |
-| --- | ---------------------------- | ----------- | --------------------------- |
-| 001 | Recursion with Bounded Depth | ✅ Accepted | Keep recursion              |
-| 002 | No Result Utility Functions  | ✅ Accepted | Breaking: Removed utilities |
-| 003 | Result Uses `value` Property | ✅ Accepted | Breaking: Renamed property  |
-| 004 | Bounded Loops for Safety     | ✅ Accepted | Added safety limits         |
-| 005 | Simplified Options           | ✅ Accepted | Breaking: Removed options   |
-| 006 | Options Validation           | ✅ Accepted | Throws on invalid input     |
-| 007 | No Timeouts in tryCatch      | ✅ Accepted | User responsibility         |
-| 008 | Errors Are Mutable           | ✅ Accepted | Match standard Error        |
-| 009 | No Built-in Sanitization     | ✅ Accepted | User responsibility         |
-| 010 | Refactored for Modularity    | ✅ Accepted | Code structure              |
+| ADR | Title                        | Status      | Impact                        |
+| --- | ---------------------------- | ----------- | ----------------------------- |
+| 001 | Recursion with Bounded Depth | ✅ Accepted | Keep recursion                |
+| 002 | maxDepth Semantics           | ✅ Accepted | Exclusive, arrays transparent |
+| 003 | Bounded Loops for Safety     | ✅ Accepted | Added safety limits           |
+| 004 | No Timeouts in tryCatch      | ✅ Accepted | User responsibility           |
+| 005 | Errors Are Mutable           | ✅ Accepted | Match standard Error          |
+| 006 | No Built-in Sanitization     | ✅ Accepted | User responsibility           |
 
 ---
 

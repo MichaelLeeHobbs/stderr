@@ -3,9 +3,9 @@
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
 import { StdError } from './StdError';
-import type { Dictionary, ErrorRecord, ErrorShape } from './types';
+import type { ErrorRecord, ErrorShape } from './types';
 import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
-import { getCustomKeys, primitiveToError, unknownToString } from './utils';
+import { checkDepthLimit, getCustomKeys, primitiveToError, unknownToString } from './utils';
 
 /**
  * Maximum number of properties to process when normalizing error objects.
@@ -56,7 +56,7 @@ const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
     maxDepth: _maxDepth,
 });
 
-const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
+const normalizeMetaData = (target: ErrorShape, source: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
     // Always include non-enumerable properties for complete error capture
     const metadataKeys = getCustomKeys(source, { includeNonEnumerable: true });
 
@@ -91,8 +91,8 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
 
 // We don't want to force the error shape on purely unknown objects
 normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
-    // Depth limit for unknown structures
-    if (depth >= opts.maxDepth) return `[Max depth of ${opts.maxDepth} reached]`;
+    const depthCheck = checkDepthLimit(depth, opts.maxDepth);
+    if (depthCheck) return depthCheck;
 
     // Primitives (symbol first for clarity)
     if (isSymbol(input)) return input.toString();
@@ -144,9 +144,9 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         }
         return normalized;
     }
-
-    // Fallback for any other unknown type
-    return String(input);
+    /* node:coverage ignore next 3 */
+    // This should be impossible to reach
+    return unknownToString(input);
 };
 
 /**
@@ -160,8 +160,9 @@ const normalizeCause = (input: ErrorRecord, opts: NormalizeOptionsInternal, dept
     if (isErrorShaped(normalizedCause)) return normalizedCause as ErrorShape;
     if (isPrimitive(normalizedCause)) return primitiveToError(normalizedCause);
     if (isObject(normalizedCause)) return normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
-
-    return undefined;
+    /* node:coverage ignore next 3 */
+    // This should be impossible to reach
+    return new StdError(unknownToString(input) ?? 'Unknown Cause', { maxDepth: opts.maxDepth });
 };
 
 /**
@@ -195,7 +196,8 @@ const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsIntern
     if (isErrorShaped(normalizedError)) return [normalizedError as ErrorShape];
     if (isPrimitive(normalizedError)) return [primitiveToError(normalizedError)];
     if (isObject(normalizedError)) return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
-
+    /* node:coverage ignore next 3 */
+    // This should be impossible to reach
     return [];
 };
 
@@ -215,7 +217,7 @@ const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal
 
     for (const key of boundedErrorKeys) {
         const keyStr = key.toString();
-        const value = (errorsObj as Dictionary)[key as keyof typeof errorsObj];
+        const value = (errorsObj as ErrorRecord)[key as keyof typeof errorsObj];
 
         // Skip functions in error maps
         if (typeof value === 'function') continue;
@@ -223,7 +225,7 @@ const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal
         const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
 
         if (isErrorShaped(normalizedValue)) {
-            normalizedErrors[keyStr] = normalizedValue as ErrorShape;
+            normalizedErrors[keyStr] = normalizedValue;
         } else if (isPrimitive(normalizedValue)) {
             normalizedErrors[keyStr] = primitiveToError(normalizedValue);
         } else if (isObject(normalizedValue)) {
@@ -235,10 +237,8 @@ const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal
 };
 
 normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    // Depth check for Error normalization
-    if (depth >= opts.maxDepth) {
-        return new StdError(`[Max depth of ${opts.maxDepth} reached]`, { maxDepth: opts.maxDepth });
-    }
+    const depthCheck = checkDepthLimit(depth, opts.maxDepth);
+    if (depthCheck) return new StdError(depthCheck, { maxDepth: opts.maxDepth });
 
     const errorShape: Partial<ErrorShape> = {};
 
@@ -282,7 +282,7 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     const finalMessage = computeFinalMessage();
 
     // Construct the StdError instance
-    const stderrOptions: Dictionary = { name: finalName, maxDepth: opts.maxDepth };
+    const stderrOptions: Record<string | symbol, unknown> = { name: finalName, maxDepth: opts.maxDepth };
 
     if (errorShape.cause !== undefined && errorShape.cause !== null) stderrOptions.cause = errorShape.cause;
     if (errorShape.errors !== undefined && errorShape.errors !== null) stderrOptions.errors = errorShape.errors;
@@ -310,9 +310,7 @@ const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, de
 
     // Capture original stack if input is error-shaped
     let originalStack: string | undefined;
-    if (isErrorShaped(input)) {
-        originalStack = (input as ErrorShape).stack;
-    }
+    if (isErrorShaped(input)) originalStack = input.stack;
 
     let e: ErrorShape;
 

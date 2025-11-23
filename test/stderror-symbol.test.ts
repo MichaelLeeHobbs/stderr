@@ -1,7 +1,6 @@
 // test/stderror-symbol.test.ts
 import { stderr } from '../src';
 import { StdError } from '../src/StdError';
-import * as console from 'node:console';
 
 describe('StdError Symbol property isolation', () => {
     it('maxDepth Symbol does not appear in Object.keys()', () => {
@@ -28,7 +27,6 @@ describe('StdError Symbol property isolation', () => {
     it('maxDepth Symbol does not appear in JSON.stringify()', () => {
         const err = new StdError('Test', { maxDepth: 10 });
         const json = JSON.stringify(err);
-        console.log(json);
 
         expect(json).not.toContain('_maxDepth');
         expect(json).not.toContain('maxDepth');
