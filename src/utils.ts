@@ -119,11 +119,11 @@ export const unknownToString = (input: unknown): string => {
             }
 
             return Object.prototype.toString.call(input); // Safer fallback
-        } /* node:coverage ignore next 2 */ catch {
+        } catch {
             return String(input);
         }
     }
-    /* node:coverage ignore next 3 */
+
     // Fallback for any other type, that somehow isn't caught above
     return String(input);
 };

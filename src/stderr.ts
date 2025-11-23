@@ -79,7 +79,7 @@ const normalizeMetaData = (target: ErrorShape, source: Dictionary, opts: Normali
             else if (isSymbol(value)) value = value.toString();
 
             if (value !== undefined) target[keyStr] = value;
-        } /* node:coverage ignore next 8 */ catch (err) {
+        } catch (err) {
             // Only ignore property access errors (getters that throw, etc.)
             // Re-throw serious errors like out-of-memory
             if (err instanceof RangeError || err instanceof ReferenceError) throw err;
@@ -144,7 +144,7 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
         }
         return normalized;
     }
-    /* node:coverage ignore next 3 */
+
     // Fallback for any other unknown type
     return String(input);
 };
@@ -195,7 +195,7 @@ const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsIntern
     if (isErrorShaped(normalizedError)) return [normalizedError as ErrorShape];
     if (isPrimitive(normalizedError)) return [primitiveToError(normalizedError)];
     if (isObject(normalizedError)) return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
-    /* node:coverage ignore next 2 */
+
     return [];
 };
 
@@ -320,7 +320,6 @@ const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, de
     if (isPrimitive(input)) {
         e = primitiveToError(input);
     } else {
-        /* node:coverage ignore next 2 */
         if (seen.has(input as object)) {
             e = new StdError('[Circular Input]');
         } else {
@@ -334,7 +333,7 @@ const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, de
                 e = normalizeObjectToError({ errors: input as unknown[], name: 'AggregateError', message: 'AggregateError' } as ErrorRecord, opts, depth, seen);
             } else if (isObject(input)) {
                 e = normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
-            } /* node:coverage ignore next 2 */ else {
+            } else {
                 e = primitiveToError(String(input));
             }
         }

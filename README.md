@@ -737,6 +737,70 @@ err.customField = additionalData;
 
 They encourage implicit error handling, which contradicts the library's philosophy. If you want functional chaining, use libraries designed for that (neverthrow, fp-ts).
 
+### Should I subclass StdError?
+
+**No.** Subclassing StdError doesn't make sense for the library's purpose.
+
+**Why?**
+
+- `StdError` is the **final stop** before logging/console output
+- It's for handling errors of **unknown shape**
+- If you know your error types, handle them directly with custom error classes
+
+**When to use StdError:**
+
+```typescript
+// When logging unknown errors
+try {
+    await thirdPartyLibrary.doSomething();
+} catch (error) {
+    const normalized = stderr(error); // Standardize for logging
+    logger.error('Operation failed:', normalized);
+}
+
+// When you need to serialize custom errors
+class PaymentError extends Error {
+    constructor(
+        message: string,
+        public code: string,
+        public amount: number
+    ) {
+        super(message);
+    }
+}
+
+try {
+    throw new PaymentError('Payment failed', 'E_INSUFFICIENT_FUNDS', 100);
+} catch (error) {
+    const normalized = stderr(error); // All properties preserved
+    logger.error(normalized.toString()); // Includes code and amount
+}
+```
+
+**Use custom error classes directly when you know your types:**
+
+```typescript
+class ValidationError extends Error {
+    constructor(
+        message: string,
+        public field: string
+    ) {
+        super(message);
+    }
+}
+
+try {
+    throw new ValidationError('Invalid email', 'email');
+} catch (error) {
+    if (error instanceof ValidationError) {
+        // Type-safe handling
+        console.log(`Field ${error.field} failed validation`);
+    }
+    // Optional: normalize for logging
+    logger.error(stderr(error).toString());
+}
+```
+
 ### Can I use this with my existing logger?
 
 Yes! Most loggers call `toString()` automatically:
@@ -801,3 +865,5 @@ MIT © Michael L. Hobbs
 ---
 
 **Made with ❤️ for better error handling**
+
+/_ node:coverage ignore next 2 _/

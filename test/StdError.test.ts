@@ -385,26 +385,7 @@ describe('StdError', () => {
     // Coverage Tests for Uncovered Branches
     // =========================================================================
     describe('uncovered branch coverage', () => {
-        describe('prototype chain edge case (line 132-133)', () => {
-            it('handles custom subclass correctly', () => {
-                // This tests that the prototype chain is maintained correctly
-                // The internal code at lines 132-133 ensures proper inheritance
-                class CustomStdError extends StdError {
-                    constructor(
-                        message: string,
-                        public code: string
-                    ) {
-                        super(message, { name: 'CustomError' });
-                    }
-                }
-                const error = new CustomStdError('Test', 'E_CUSTOM');
-                expect(error).toBeInstanceOf(StdError);
-                expect(error).toBeInstanceOf(Error);
-                expect(error.code).toBe('E_CUSTOM');
-            });
-        });
-
-        describe('max depth limit tests (lines 178-179, 276-277, 308-310)', () => {
+        describe('max depth limit tests', () => {
             it('toString() hits max depth limit', () => {
                 const error = new StdError('Test', { maxDepth: 1 });
                 const deepCause = new StdError('Level 1', {

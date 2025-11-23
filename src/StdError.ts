@@ -128,13 +128,6 @@ export class StdError extends Error implements ErrorShape {
                 }
             }
         }
-
-        // Ensure proper prototype chain for subclasses
-        const actualProto = new.target.prototype;
-        if (Object.getPrototypeOf(this) !== actualProto) {
-            // Untested code path
-            Object.setPrototypeOf(this, actualProto);
-        }
     }
 
     /**

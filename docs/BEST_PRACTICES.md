@@ -417,6 +417,147 @@ it('never throws for any input', () => {
 
 ---
 
+## Custom Error Classes vs StdError
+
+### When to Use Custom Error Classes
+
+Use custom error classes when you **know your error types** and need type-safe handling:
+
+```typescript
+class ValidationError extends Error {
+    constructor(
+        message: string,
+        public field: string,
+        public value: unknown
+    ) {
+        super(message);
+        this.name = 'ValidationError';
+    }
+}
+
+class PaymentError extends Error {
+    constructor(
+        message: string,
+        public code: string,
+        public amount: number
+    ) {
+        super(message);
+        this.name = 'PaymentError';
+    }
+}
+
+// Type-safe error handling
+try {
+    processPayment(order);
+} catch (error) {
+    if (error instanceof ValidationError) {
+        // TypeScript knows about field and value
+        return res.status(400).json({
+            error: 'Validation failed',
+            field: error.field,
+        });
+    }
+    if (error instanceof PaymentError) {
+        // TypeScript knows about code and amount
+        return res.status(402).json({
+            error: 'Payment failed',
+            code: error.code,
+        });
+    }
+    // Unknown error - use stderr for logging
+    logger.error('Unexpected error:', stderr(error));
+}
+```
+
+### When to Use StdError
+
+Use `stderr()` when dealing with **unknown error shapes**:
+
+1. **Third-party library errors**
+
+    ```typescript
+    try {
+        await externalAPI.doSomething();
+    } catch (error) {
+        // Don't know what shape error is
+        const normalized = stderr(error);
+        logger.error('API call failed:', normalized);
+    }
+    ```
+
+2. **Logging any error consistently**
+
+    ```typescript
+    function logError(error: unknown) {
+        // stderr handles any input
+        const normalized = stderr(error);
+        logger.error(normalized.toString()); // Complete details
+    }
+    ```
+
+3. **Serializing errors for transport**
+    ```typescript
+    try {
+        await operation();
+    } catch (error) {
+        const normalized = stderr(error);
+        // Send to error tracking service
+        await errorTracker.report({
+            error: normalized.toJSON(),
+            timestamp: Date.now(),
+        });
+    }
+    ```
+
+### Combining Both Approaches
+
+```typescript
+class DatabaseError extends Error {
+    constructor(
+        message: string,
+        public query: string,
+        public code: string
+    ) {
+        super(message);
+        this.name = 'DatabaseError';
+    }
+}
+
+async function saveUser(user: User) {
+    try {
+        return await db.users.insert(user);
+    } catch (error) {
+        // Wrap in typed error
+        throw new DatabaseError('Failed to save user', JSON.stringify(user), (error as any).code || 'UNKNOWN');
+    }
+}
+
+// Usage
+try {
+    await saveUser(newUser);
+} catch (error) {
+    if (error instanceof DatabaseError) {
+        // Handle specifically
+        logger.error('DB error:', {
+            query: error.query,
+            code: error.code,
+        });
+    }
+    // Also log complete error details
+    logger.error('Full error:', stderr(error).toString());
+}
+```
+
+### Key Principle
+
+**Don't subclass StdError.** It's the final step for logging/serialization, not a base class for your error hierarchy.
+
+- ✅ **Custom classes** → Type-safe error handling in your code
+- ✅ **stderr()** → Standardize for logging/serialization
+- ❌ **Subclassing StdError** → Doesn't make sense for the library's purpose
+
+---
+
 ## Common Patterns
 
 ### API Error Handling
