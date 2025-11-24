@@ -155,33 +155,15 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
 };
 
 /**
- * Normalizes the cause property of an error object.
- * Returns undefined if cause is null or undefined.
- */
-const normalizeCause = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape | undefined => {
-    if (input.cause === undefined || input.cause === null) return undefined;
-
-    return convertToErrorShape(input.cause, opts, depth, seen);
-};
-
-/**
  * Normalizes an errors array property.
  * Handles array length bounds and converts each item to ErrorShape.
  */
 const normalizeErrorsArray = (errorsArray: unknown[], opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
-    const boundedErrors = errorsArray.slice(0, MAX_ARRAY_LENGTH);
     if (errorsArray.length > MAX_ARRAY_LENGTH) {
         console.warn(`Errors array length (${errorsArray.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
     }
 
-    return boundedErrors.map((e: unknown) => convertToErrorShape(e, opts, depth, seen));
-};
-
-/**
- * Normalizes a single error value into an array with one ErrorShape.
- */
-const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
-    return [convertToErrorShape(errorValue, opts, depth, seen)];
+    return errorsArray.slice(0, MAX_ARRAY_LENGTH).map((e: unknown) => convertToErrorShape(e, opts, depth, seen));
 };
 
 /**
@@ -215,60 +197,49 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
     if (depthCheck) return new StdError(depthCheck, { maxDepth: opts.maxDepth });
 
-    const errorShape: Partial<ErrorShape> = {};
-
-    // Normalize cause using helper
-    errorShape.cause = normalizeCause(input, opts, depth, seen);
+    // Normalize cause
+    const normalizedCause = input.cause ? convertToErrorShape(input.cause, opts, depth, seen) : undefined;
 
     // Normalize errors property based on its type
-    type AggregateMode = 'none' | 'array' | 'single';
-    let aggregateMode: AggregateMode = 'none';
+    // Track if this is a "single error as aggregate" case for default name/message
+    let normalizedErrors: ErrorShape[] | ErrorRecord | undefined;
+    let isSingleErrorAggregate = false;
 
     if (isArray(input.errors)) {
-        aggregateMode = 'array';
-        errorShape.errors = normalizeErrorsArray(input.errors as unknown[], opts, depth, seen);
+        normalizedErrors = normalizeErrorsArray(input.errors as unknown[], opts, depth, seen);
     } else if (isErrorShaped(input.errors)) {
-        aggregateMode = 'single';
-        errorShape.errors = normalizeErrorsSingle(input.errors, opts, depth, seen);
+        isSingleErrorAggregate = true;
+        normalizedErrors = [convertToErrorShape(input.errors, opts, depth, seen)];
     } else if (isObject(input.errors)) {
-        errorShape.errors = normalizeErrorsObject(input.errors as object, opts, depth, seen);
+        normalizedErrors = normalizeErrorsObject(input.errors as object, opts, depth, seen);
     } else if (input.errors !== undefined && input.errors !== null) {
-        aggregateMode = 'single';
-        errorShape.errors = normalizeErrorsSingle(input.errors, opts, depth, seen);
+        isSingleErrorAggregate = true;
+        normalizedErrors = [convertToErrorShape(input.errors, opts, depth, seen)];
     }
 
-    // Compute final name based on aggregate mode
-    const computeFinalName = (): string => {
-        if (aggregateMode === 'single') return input.name ? unknownToString(input.name) : 'AggregateError';
-        if (aggregateMode === 'array') return input.name ? unknownToString(input.name) : 'Error';
-        return input.name ? unknownToString(input.name) : 'Error';
-    };
+    // Compute name: Use input.name if present, otherwise default to 'AggregateError' for single-error case, 'Error' otherwise
+    const finalName = input.name ? unknownToString(input.name) : isSingleErrorAggregate ? 'AggregateError' : 'Error';
 
-    // Compute final message
-    const computeFinalMessage = (): string => {
-        if (aggregateMode === 'single') return 'AggregateError';
-        if (input.message !== undefined && input.message !== null) {
-            return isObject(input.message) ? unknownToString(normalizeUnknown(input.message, opts, depth + 1, seen)) : unknownToString(input.message);
-        }
-        return '';
-    };
-
-    const finalName = computeFinalName();
-    const finalMessage = computeFinalMessage();
+    // Compute message: Use 'AggregateError' for single-error case, otherwise use input.message
+    const finalMessage = isSingleErrorAggregate
+        ? 'AggregateError'
+        : input.message !== undefined && input.message !== null
+          ? isObject(input.message)
+              ? unknownToString(normalizeUnknown(input.message, opts, depth + 1, seen))
+              : unknownToString(input.message)
+          : '';
 
     // Construct the StdError instance
     const stderrOptions: Record<string | symbol, unknown> = { name: finalName, maxDepth: opts.maxDepth };
 
-    if (errorShape.cause !== undefined && errorShape.cause !== null) stderrOptions.cause = errorShape.cause;
-    if (errorShape.errors !== undefined && errorShape.errors !== null) stderrOptions.errors = errorShape.errors;
+    if (normalizedCause !== undefined && normalizedCause !== null) stderrOptions.cause = normalizedCause;
+    if (normalizedErrors !== undefined && normalizedErrors !== null) stderrOptions.errors = normalizedErrors;
 
     // Create the StdError instance
     const e = new StdError(finalMessage, stderrOptions) as ErrorShape;
 
-    // Always include non-enumerable properties for complete error capture
+    // Copy all custom metadata properties (always include non-enumerable for complete error capture)
     const metadataKeys = getCustomKeys(input, { includeNonEnumerable: true });
-
-    // Copy all custom metadata properties
     copyProperties(input, e, metadataKeys, opts, depth, seen, MAX_PROPERTIES);
 
     return e;
