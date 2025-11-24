@@ -1,6 +1,5 @@
 // test/maxDepth-behavior.test.ts
 import { StdError } from '../src/StdError';
-import * as console from 'node:console';
 
 /**
  * Tests for maxDepth behavior to ensure it works as expected (EXCLUSIVE)
@@ -266,8 +265,8 @@ describe('maxDepth behavior (exclusive)', () => {
                 ],
             });
             const json = error.toJSON();
-            console.log('error:', error.toString());
-            console.log('JSON:', JSON.stringify(json, null, 2));
+            // console.log('error:', error.toString());
+            // console.log('JSON:', JSON.stringify(json, null, 2));
 
             expect(json.errors).toBeDefined();
             const errors = json.errors as StdError[];

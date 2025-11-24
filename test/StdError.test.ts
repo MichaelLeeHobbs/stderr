@@ -756,11 +756,16 @@ describe('StdError', () => {
                 expect(str).toContain('{Object with 5 keys}');
             });
 
-            it('formats unknown type fallback', () => {
+            it('formats function properties', () => {
                 const func = function testFunc() {
                     return 42;
                 };
                 const error = new StdError('Test', { funcValue: func });
+
+                // Functions ARE copied to StdError (for debugging purposes)
+                expect(error.funcValue).toBe(func);
+
+                // toString() should show the function property
                 const str = error.toString();
                 expect(str).toContain('funcValue:');
             });

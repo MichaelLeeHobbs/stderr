@@ -6,8 +6,18 @@ import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } f
  * Standard Error property keys that should be excluded when extracting custom properties
  */
 export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors']);
+
+/**
+ * Critical security keys that must ALWAYS be excluded to prevent security issues.
+ * These are always added regardless of prototype chain walking.
+ */
+export const CRITICAL_SECURITY_KEYS = new Set<string>([
+    'prototype', // Prevent prototype property overwrite
+    '__proto__', // Security: prevent prototype pollution
+    'constructor', // Prevent overwriting the link to the class
+]);
+
 export const STANDARD_OBJECT_KEYS = new Set<string>([
-    'constructor',
     'toString',
     'toJSON',
     'defineGetter',
@@ -19,13 +29,111 @@ export const STANDARD_OBJECT_KEYS = new Set<string>([
     'propertyIsEnumerable',
     'valueOf',
     'proto',
-    'prototype',
-    '__proto__',
     'toLocaleString',
     ...Object.getOwnPropertyNames(Object.prototype),
     ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
 ]);
-export const DEFAULT_EXCLUDE_KEYS = new Set<string>([...STANDARD_ERROR_KEYS, ...STANDARD_OBJECT_KEYS]);
+
+export const DEFAULT_EXCLUDE_KEYS = new Set<string>([...STANDARD_ERROR_KEYS, ...CRITICAL_SECURITY_KEYS, ...STANDARD_OBJECT_KEYS]);
+
+/**
+ * Options for copying properties between objects
+ */
+export interface CopyPropertiesOptions {
+    /** Additional keys to exclude beyond defaults */
+    excludeKeys?: Set<string>;
+    /** Skip function-valued properties */
+    skipFunctions?: boolean;
+    /** Convert symbol keys to strings (for serialization) */
+    convertSymbolKeys?: boolean;
+    /** Transform/normalize values during copy */
+    normalizeValue?: (value: unknown) => unknown;
+    /** Maximum number of properties to copy (for DoS prevention) */
+    maxProperties?: number;
+}
+
+/**
+ * Copies properties from source to target with filtering and optional normalization.
+ * Always excludes CRITICAL_SECURITY_KEYS for safety.
+ * Optionally walks prototype chain to exclude all inherited properties.
+ *
+ * @param source - Source object to copy from
+ * @param target - Target object to copy to
+ * @param options - Copy options
+ */
+export function copyPropertiesTo(source: object, target: Record<string | symbol, unknown>, options: CopyPropertiesOptions = {}): void {
+    const { excludeKeys = DEFAULT_EXCLUDE_KEYS, skipFunctions = true, convertSymbolKeys = false, normalizeValue, maxProperties } = options;
+
+    // Get custom keys (always includes non-enumerable, always excludes critical security keys)
+    const keys = getCustomKeys(source, { includeNonEnumerable: true, excludeKeys });
+
+    // Apply bounds if maxProperties specified
+    const boundedKeys = maxProperties !== undefined && keys.length > maxProperties ? keys.slice(0, maxProperties) : keys;
+
+    if (maxProperties !== undefined && keys.length > maxProperties) {
+        console.warn(`Property count (${keys.length}) exceeds limit (${maxProperties}), truncating`);
+    }
+
+    for (const key of boundedKeys) {
+        try {
+            let value = (source as Record<string | symbol, unknown>)[key];
+
+            // Skip functions if requested
+            if (skipFunctions && typeof value === 'function') continue;
+
+            // Normalize value if transformer provided
+            if (normalizeValue) {
+                value = normalizeValue(value);
+            }
+            // Convert symbols to strings if requested (for serialization)
+            else if (convertSymbolKeys && isSymbol(value)) {
+                value = value.toString();
+            }
+
+            // Determine the key to use (convert symbol keys to strings if requested)
+            const targetKey = convertSymbolKeys && isSymbol(key) ? key.toString() : key;
+
+            if (value !== undefined) target[targetKey] = value;
+        } catch (err) {
+            // Only ignore property access errors (getters that throw, etc.)
+            // Re-throw serious errors like out-of-memory
+            if (err instanceof RangeError || err instanceof ReferenceError) throw err;
+            // Silently skip properties that can't be accessed
+        }
+    }
+}
+
+/**
+ * Builds a comprehensive exclude keys set by walking the prototype chain.
+ * Always includes CRITICAL_SECURITY_KEYS even if not found in prototype chain.
+ * This is future-proof - picks up all inherited properties automatically.
+ *
+ * @param startObj - Object to start walking from (typically `this` in constructor)
+ * @param additionalKeys - Additional keys to exclude beyond prototype chain
+ * @returns Set of all keys to exclude
+ */
+export function buildExcludeKeys(startObj: object, additionalKeys: string[] = []): Set<string> {
+    const keysToSkip = new Set<string>([
+        ...CRITICAL_SECURITY_KEYS, // Always include these first
+        ...additionalKeys,
+    ]);
+
+    let currentObj: object | null = startObj;
+
+    // Walk the prototype chain
+    while (currentObj) {
+        // Get all property names (strings) of the current level
+        Object.getOwnPropertyNames(currentObj).forEach(key => keysToSkip.add(key));
+
+        // Get all symbols of the current level
+        Object.getOwnPropertySymbols(currentObj).forEach(sym => keysToSkip.add(sym.toString()));
+
+        // Move up to the next prototype
+        currentObj = Object.getPrototypeOf(currentObj);
+    }
+
+    return keysToSkip;
+}
 
 /**
  * Options for extracting custom keys from objects
@@ -40,10 +148,11 @@ export interface GetCustomKeysOptions {
 /**
  * Gets custom property keys from an object, excluding standard error properties.
  * Handles both string and symbol keys, with optional non-enumerable support.
+ * Always excludes CRITICAL_SECURITY_KEYS for safety.
  *
  * @param obj - Object to extract keys from
  * @param options - Options for key extraction
- * @returns Array of string and symbol keys (excluding standard error keys)
+ * @returns Array of string and symbol keys (excluding standard error keys and critical security keys)
  *
  * @example
  * ```typescript
@@ -59,7 +168,8 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
         return Reflect.ownKeys(obj).filter(key => {
             // Convert symbol keys to string for comparison with excludeKeys Set
             const keyStr: string = isSymbol(key) ? key.toString() : key;
-            return !excludeKeys.has(keyStr);
+            // Always exclude critical security keys + provided excludeKeys
+            return !CRITICAL_SECURITY_KEYS.has(keyStr) && !excludeKeys.has(keyStr);
         });
     }
 
@@ -68,13 +178,19 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
 
     // String keys
     for (const key of Object.keys(obj)) {
-        if (!excludeKeys.has(key)) keys.push(key);
+        // Always exclude critical security keys + provided excludeKeys
+        if (!CRITICAL_SECURITY_KEYS.has(key) && !excludeKeys.has(key)) {
+            keys.push(key);
+        }
     }
 
     // Symbol keys (enumerable only)
     for (const sym of Object.getOwnPropertySymbols(obj)) {
         const desc = Object.getOwnPropertyDescriptor(obj, sym);
-        if (desc?.enumerable && !excludeKeys.has(sym.toString())) keys.push(sym);
+        const symStr = sym.toString();
+        if (desc?.enumerable && !CRITICAL_SECURITY_KEYS.has(symStr) && !excludeKeys.has(symStr)) {
+            keys.push(sym);
+        }
     }
 
     return keys;
@@ -161,7 +277,7 @@ export const unknownToString = (input: unknown): string => {
                 // This avoids the Symbol.toStringTag trap.
                 const constructorName = (input as object).constructor?.name;
 
-                if (constructorName && typeof constructorName === 'string') {
+                if (constructorName) {
                     return `[object ${constructorName}]`;
                 }
             } catch {

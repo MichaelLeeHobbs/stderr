@@ -1,7 +1,7 @@
 // src/StdError.ts
 
 import { ErrorRecord, ErrorShape, isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
-import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToString } from './utils';
+import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToString, buildExcludeKeys, copyPropertiesTo } from './utils';
 
 /**
  * Maximum depth for recursive error display in toString() and toJSON()
@@ -113,46 +113,18 @@ export class StdError extends Error implements ErrorShape {
 
         // Copy any additional properties
         if (options) {
-            // Generate a list of all keys/props to skip by walking the entire prototype chain
-            const keysToSkip = new Set<string>([
-                'cause',
-                'errors',
-                'name',
-                'message',
-                'maxDepth',
-                'prototype', // Test: 'filters out prototype property'
-                '__proto__', // Security best practice
-                'constructor', // Good practice to avoid overwriting the link to the class
-            ]);
+            // Build comprehensive exclude keys by walking prototype chain
+            // Always includes critical security keys (prototype, __proto__, constructor)
+            const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth']);
 
-            // Start with the current instance ('this')
-            // eslint-disable-next-line @typescript-eslint/no-this-alias
-            let currentObj = this;
-
-            // Loop up the chain until we run out of objects (null)
-            while (currentObj) {
-                // 1. Get all property names (strings) of the current level
-                Object.getOwnPropertyNames(currentObj).forEach(key => keysToSkip.add(key));
-
-                // 2. Get all symbols of the current level
-                Object.getOwnPropertySymbols(currentObj).forEach(sym => keysToSkip.add(sym.toString()));
-
-                // 3. Move up to the next prototype (e.g., from Instance -> Class -> Object -> null)
-                currentObj = Object.getPrototypeOf(currentObj);
-            }
-
-            for (const key of Object.keys(options)) {
-                if (!keysToSkip.has(key)) {
-                    this[key] = options[key];
-                }
-            }
-
-            // Handle symbol properties
-            for (const sym of Object.getOwnPropertySymbols(options)) {
-                if (!keysToSkip.has(sym.toString())) {
-                    this[sym] = options[sym];
-                }
-            }
+            // Use unified property copy utility
+            // Don't skip functions - they may be useful for debugging
+            // Don't convert symbol keys - keep them as symbols
+            copyPropertiesTo(options, this, {
+                excludeKeys,
+                skipFunctions: false,
+                convertSymbolKeys: false,
+            });
         }
     }
 

@@ -56,18 +56,15 @@ describe('stderr with Promise.race and fetch errors', () => {
 
     describe('Direct fetch error', () => {
         it('should properly normalize a direct fetch error', async () => {
-            if (!hasFetch) {
-                console.log('Skipping: fetch not available');
-                return;
-            }
+            expect(hasFetch).toBe(true);
 
             try {
                 await fetch('https://invalid-host-that-does-not-exist-12345.com');
                 fail('Should have thrown an error');
             } catch (e) {
-                console.log('\n=== Test 1: Direct fetch error ===');
-                console.log('Original error type:', (e as Error)?.constructor?.name);
-                console.log('Original error message:', (e as Error).message);
+                // console.log('\n=== Test 1: Direct fetch error ===');
+                // console.log('Original error type:', (e as Error)?.constructor?.name);
+                // console.log('Original error message:', (e as Error).message);
 
                 const normalized = stderr(e);
 
@@ -94,20 +91,17 @@ describe('stderr with Promise.race and fetch errors', () => {
                 // Verify cause chain is shown in toString
                 expect(toStringResult).toContain('[cause]');
 
-                console.log('✓ toString() includes error name and message');
-                console.log('✓ toString() includes cause chain');
-                console.log('✓ toString() length:', toStringResult.length, 'characters');
-                console.log(toStringResult);
+                // console.log('✓ toString() includes error name and message');
+                // console.log('✓ toString() includes cause chain');
+                // console.log('✓ toString() length:', toStringResult.length, 'characters');
+                // console.log(toStringResult);
             }
         }, 10000);
     });
 
     describe('Fetch error through Promise.race', () => {
         it('should properly normalize a fetch error thrown from Promise.race', async () => {
-            if (!hasFetch) {
-                console.log('Skipping: fetch not available');
-                return;
-            }
+            expect(hasFetch).toBe(true);
 
             try {
                 const fetchPromise = fetch('https://invalid-host-that-does-not-exist-12345.com');
@@ -117,9 +111,9 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await Promise.race([fetchPromise, timeoutPromise]);
                 fail('Should have thrown an error');
             } catch (e) {
-                console.log('\n=== Test 2: Fetch error through Promise.race ===');
-                console.log('Original error type:', (e as Error)?.constructor?.name);
-                console.log('Original error message:', (e as Error).message);
+                // console.log('\n=== Test 2: Fetch error through Promise.race ===');
+                // console.log('Original error type:', (e as Error)?.constructor?.name);
+                // console.log('Original error message:', (e as Error).message);
 
                 const normalized = stderr(e);
 
@@ -145,8 +139,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 expect(toStringResult).toContain('fetch failed');
                 expect(toStringResult).toContain('[cause]');
 
-                console.log('✓ Error from Promise.race normalized correctly');
-                console.log('✓ toString() works correctly with Promise.race errors');
+                // console.log('✓ Error from Promise.race normalized correctly');
+                // console.log('✓ toString() works correctly with Promise.race errors');
             }
         }, 10000);
     });
@@ -162,9 +156,9 @@ describe('stderr with Promise.race and fetch errors', () => {
                 await fetchTimeout('https://invalid-host-that-does-not-exist-12345.com', { timeout: 5000 });
                 fail('Should have thrown an error');
             } catch (e) {
-                console.log('\n=== Test 3: Fetch error through fetchTimeout ===');
-                console.log('Original error type:', (e as Error)?.constructor?.name);
-                console.log('Original error message:', (e as Error).message);
+                // console.log('\n=== Test 3: Fetch error through fetchTimeout ===');
+                // console.log('Original error type:', (e as Error)?.constructor?.name);
+                // console.log('Original error message:', (e as Error).message);
 
                 const normalized = stderr(e);
 
@@ -190,8 +184,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 expect(toStringResult).toContain('fetch failed');
                 expect(toStringResult).toContain('[cause]');
 
-                console.log('✓ Error from fetchTimeout normalized correctly');
-                console.log('✓ toString() works correctly with fetchTimeout errors');
+                // console.log('✓ Error from fetchTimeout normalized correctly');
+                // console.log('✓ toString() works correctly with fetchTimeout errors');
             }
         }, 10000);
     });
@@ -205,8 +199,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 fail('Should have thrown an error');
             } catch (e) {
                 const normalized = stderr(e);
-                console.log('\n=== TypeError from Promise.race ===');
-                console.log('normalized.toString():', normalized.toString());
+                // console.log('\n=== TypeError from Promise.race ===');
+                // console.log('normalized.toString():', normalized.toString());
 
                 expect(normalized).toBeInstanceOf(Error);
                 expect(normalized.name).toBe('TypeError');
@@ -228,9 +222,9 @@ describe('stderr with Promise.race and fetch errors', () => {
                 fail('Should have thrown an error');
             } catch (e) {
                 const normalized = stderr(e);
-                console.log('\n=== Custom error from Promise.race ===');
-                console.log('normalized.toString():', normalized.toString());
-                console.log('normalized:', JSON.stringify(normalized, null, 2));
+                // console.log('\n=== Custom error from Promise.race ===');
+                // console.log('normalized.toString():', normalized.toString());
+                // console.log('normalized:', JSON.stringify(normalized, null, 2));
 
                 expect(normalized).toBeInstanceOf(Error);
                 expect(normalized.name).toBe('CustomError');
@@ -252,8 +246,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 fail('Should have thrown an error');
             } catch (e) {
                 const normalized = stderr(e);
-                console.log('\n=== Error with cause chain from Promise.race ===');
-                console.log('normalized.toString():', normalized.toString());
+                // console.log('\n=== Error with cause chain from Promise.race ===');
+                // console.log('normalized.toString():', normalized.toString());
 
                 expect(normalized).toBeInstanceOf(Error);
                 expect(normalized.message).toBe('Top error');
@@ -272,8 +266,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 fail('Should have thrown an error');
             } catch (e) {
                 const normalized = stderr(e);
-                console.log('\n=== Plain string from Promise.race ===');
-                console.log('normalized.toString():', normalized.toString());
+                // console.log('\n=== Plain string from Promise.race ===');
+                // console.log('normalized.toString():', normalized.toString());
 
                 expect(normalized).toBeInstanceOf(Error);
                 expect(normalized.message).toBe('Plain string error');
@@ -288,8 +282,8 @@ describe('stderr with Promise.race and fetch errors', () => {
                 fail('Should have thrown an error');
             } catch (e) {
                 const normalized = stderr(e);
-                console.log('\n=== Null from Promise.race ===');
-                console.log('normalized.toString():', normalized.toString());
+                // console.log('\n=== Null from Promise.race ===');
+                // console.log('normalized.toString():', normalized.toString());
 
                 expect(normalized).toBeInstanceOf(Error);
                 expect(normalized.message).toBe('Unknown error (Null)');

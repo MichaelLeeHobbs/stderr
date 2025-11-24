@@ -37,7 +37,7 @@ describe('stderr', () => {
 
             const err = stderr(testFn);
             expect(err).toBeInstanceOf(Error);
-            expect(err.message).toBe(testFn.toString());
+            expect(err.message).toBe('[object Function]');
             expect(err.name).toBe('Error');
         });
 
@@ -764,6 +764,65 @@ describe('stderr', () => {
             expect(err.name).toBe('MyError');
             expect(err.message).toBe('[object Function]');
         });
+
+        // it('handles object with too many properties gracefully', () => {
+        //     const largeObj: ErrorRecord = { message: 'large object' };
+        //     for (let i = 0; i < 1001; i++) {
+        //         largeObj[`prop${i}`] = `value${i}`;
+        //     }
+        //     const err = stderr(largeObj);
+        //     expect(err).toBeInstanceOf(Error);
+        //     expect(err.message).toBe('large object');
+        //     for (let i = 0; i < 1000; i++) {
+        //         expect((err as unknown as ErrorRecord)[`prop${i}`]).toBe(`value${i}`);
+        //     }
+        //     expect((err as unknown as ErrorRecord)['prop1000']).toBeUndefined();
+        // });
+        //
+        // it('handles object with errors prop with too many properties gracefully', () => {
+        //     const largeErrorsObj: ErrorRecord = {};
+        //     for (let i = 0; i < 1001; i++) {
+        //         largeErrorsObj[`error${i}`] = `value${i}`;
+        //     }
+        //     const input = { message: 'many errors', errors: largeErrorsObj };
+        //     const err = stderr<ErrorShapeWithErrorsObject>(input);
+        //     expect(err).toBeInstanceOf(StdError);
+        //     expect(err.message).toBe('many errors');
+        //     expect(typeof err.errors).toBe('object');
+        //     for (let i = 0; i < 1000; i++) {
+        //         expect(((err.errors as ErrorRecord)[`error${i}`] as StdError).message).toBe(`value${i}`);
+        //     }
+        //     expect((err.errors as ErrorRecord)['error1000']).toBeUndefined();
+        // });
+
+        // it('handles object with an array with too many errors gracefully', () => {
+        //     const errorsArray: unknown[] = [];
+        //     for (let i = 0; i < 10001; i++) {
+        //         errorsArray.push(`error${i}`);
+        //     }
+        //     const input = { message: 'many errors', errors: errorsArray };
+        //     const err = stderr<ErrorShapeWithErrorsArray>(input);
+        //     expect(err).toBeInstanceOf(StdError);
+        //     expect(err.message).toBe('many errors');
+        //     expect(Array.isArray(err.errors)).toBe(true);
+        //     expect(err.errors.length).toBe(10000);
+        //     for (let i = 0; i < 10000; i++) {
+        //         expect(err.errors[i].message).toBe(`error${i}`);
+        //     }
+        // });
+
+        // it('handles object with errors array with to many errors gracefully', () => {
+        //     const errorsArray: unknown[] = [];
+        //     for (let i = 0; i < 10001; i++) {
+        //         errorsArray.push(`error${i}`);
+        //     }
+        //     const input = { message: 'many errors', errors: errorsArray };
+        //     const err = stderr<ErrorShapeWithErrorsArray>(input);
+        //     expect(err).toBeInstanceOf(StdError);
+        //     expect(err.message).toBe('many errors');
+        //     expect(Array.isArray(err.errors)).toBe(true);
+        //     expect(err.errors.length).toBe(10000);
+        // });
     });
 
     // =========================================================================
