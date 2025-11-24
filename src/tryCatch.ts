@@ -75,7 +75,7 @@ export function tryCatch<T, E = StdError>(fn: () => T | Promise<T>, mapError?: (
                     return { ok: true as const, value: resolvedValue, error: null };
                 } catch (error) {
                     // Always normalize via stderr first
-                    const normalizedError = stderr<StdError>(error);
+                    const normalizedError = stderr(error);
                     // Then optionally transform
                     const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
                     return { ok: false as const, value: null, error: finalError };
@@ -86,7 +86,7 @@ export function tryCatch<T, E = StdError>(fn: () => T | Promise<T>, mapError?: (
         return { ok: true as const, value: value as T, error: null };
     } catch (error) {
         // Always normalize via stderr first
-        const normalizedError = stderr<StdError>(error);
+        const normalizedError = stderr(error);
         // Then optionally transform
         const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
         return { ok: false as const, value: null, error: finalError };

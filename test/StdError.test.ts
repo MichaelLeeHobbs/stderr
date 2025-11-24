@@ -756,18 +756,17 @@ describe('StdError', () => {
                 expect(str).toContain('{Object with 5 keys}');
             });
 
-            it('formats function properties', () => {
+            it('filters out function properties', () => {
                 const func = function testFunc() {
                     return 42;
                 };
-                const error = new StdError('Test', { funcValue: func });
+                const error = new StdError('Test', { funcValue: func, normalProp: 'value' });
 
-                // Functions ARE copied to StdError (for debugging purposes)
-                expect(error.funcValue).toBe(func);
+                // Functions should NOT be copied (logging library, not debugging dump)
+                expect((error as Record<string, unknown>).funcValue).toBeUndefined();
 
-                // toString() should show the function property
-                const str = error.toString();
-                expect(str).toContain('funcValue:');
+                // Other properties should work
+                expect((error as Record<string, unknown>).normalProp).toBe('value');
             });
         });
 

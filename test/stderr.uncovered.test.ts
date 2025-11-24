@@ -1,12 +1,12 @@
 // test/stderr.uncovered.test.ts
 import { stderr, StdError } from '../src';
-import type { ErrorRecord, ErrorShape, ErrorShapeWithErrorsArray, ErrorShapeWithErrorsObject } from '../src/types';
+import { ErrorRecord, ErrorShape } from '../src/types';
 
 describe('stderr (extra coverage for uncovered branches)', () => {
     it('normalizes a symbol cause via normalizeUnknown (stringified, attached as Error)', () => {
         const s = Symbol('foo');
         const input = { message: 'outer', cause: s };
-        const err = stderr<ErrorShape>(input);
+        const err = stderr(input);
 
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('outer');
@@ -21,16 +21,16 @@ describe('stderr (extra coverage for uncovered branches)', () => {
 
     it('normalizes nested plain object with symbol value (metadata path)', () => {
         const input = { message: 'm', data: { sym: Symbol('v') } };
-        const err = stderr<ErrorShape & { data: { sym: string } }>(input);
+        const err = stderr(input);
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('m');
         expect(err.data).toBeDefined();
-        expect(err.data.sym).toBe('Symbol(v)');
+        expect((err.data as { sym: string }).sym).toBe('Symbol(v)');
     });
 
     it('normalizes array input with symbol element (errors array path -> normalizeUnknown symbol branch)', () => {
         const input = ['a', Symbol('z')] as const;
-        const err = stderr<ErrorShapeWithErrorsArray>(input as unknown as ErrorRecord);
+        const err = stderr(input) as StdError & { errors: Error[] };
 
         expect(err).toBeInstanceOf(StdError);
         expect(Array.isArray(err.errors)).toBe(true);
@@ -41,15 +41,9 @@ describe('stderr (extra coverage for uncovered branches)', () => {
         expect(err.errors[1].message).toBe('Symbol(z)');
     });
 
-    it('hits normalizeObjectToError depth guard by starting at depth === maxDepth', () => {
-        const out = stderr<ErrorShape>({ message: 'x' }, { maxDepth: 1 }, 1);
-        expect(out).toBeInstanceOf(Error);
-        expect(out.message).toBe('[Max depth of 1 reached]');
-    });
-
     it('normalizes object cause (non-error) via isObject(normalizedCause) branch', () => {
         const input = { message: 'outer', cause: { k: 1 } };
-        const err = stderr<ErrorShape>(input);
+        const err = stderr(input);
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('outer');
 
@@ -61,7 +55,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
 
     it('normalizes errors object map where item is plain object (non-error-shaped)', () => {
         const input = { message: 'validation', errors: { field: { a: 1 } } };
-        const err = stderr<ErrorShapeWithErrorsObject>(input);
+        const err = stderr(input) as StdError & { errors: StdError };
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('validation');
 
@@ -74,7 +68,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
 
     it('uses provided name for "single" aggregate (name coerced) and message overridden to "AggregateError"', () => {
         const input = { name: { foo: 'bar' }, errors: 123 };
-        const err = stderr<ErrorShapeWithErrorsArray>(input);
+        const err = stderr(input) as StdError & { errors: Error[] };
         expect(err).toBeInstanceOf(StdError);
         expect(err.name).toBe('[object Object]');
         expect(err.message).toBe('AggregateError');
@@ -86,7 +80,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
 
     it('attaches cause manually when AggregateError is constructed (cause becomes enumerable)', () => {
         const input = { errors: ['a', 'b'], cause: 'c' };
-        const err = stderr<ErrorShapeWithErrorsArray>(input);
+        const err = stderr(input) as StdError & { errors: Error[] };
         expect(err).toBeInstanceOf(StdError);
         expect(err.cause).toBeInstanceOf(StdError);
         expect((err.cause as StdError).message).toBe('c');
@@ -104,7 +98,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
             return 'x';
         };
         const input = { message: 'm', data: fn, other: 'value' };
-        const err = stderr<ErrorShape & { data?: unknown; other: string }>(input);
+        const err = stderr(input);
         expect(err).toBeInstanceOf(Error);
         expect(err.message).toBe('m');
         expect(err.data).toBeUndefined(); // Functions are skipped
@@ -113,7 +107,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
 
     it('skips enumerable function properties', () => {
         const input = { message: 'test', method: () => 'result', value: 42 };
-        const err = stderr<ErrorShape & { method?: unknown; value: number }>(input);
+        const err = stderr(input);
         expect(err.method).toBeUndefined(); // Function skipped
         expect(err.value).toBe(42); // Non-function preserved
     });
@@ -128,7 +122,7 @@ describe('stderr (extra coverage for uncovered branches)', () => {
         });
         Object.defineProperty(input, 'hiddenData', { value: 'data', enumerable: false });
 
-        const err = stderr<ErrorShape & { hiddenFn?: unknown; hiddenData?: string }>(input);
+        const err = stderr(input);
         expect(err.hiddenFn).toBeUndefined(); // Function skipped even if non-enumerable
         expect(err.hiddenData).toBe('data'); // Non-function non-enumerable preserved
     });

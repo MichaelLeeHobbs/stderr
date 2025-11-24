@@ -64,11 +64,6 @@ describe('StdError Symbol property isolation', () => {
     });
 
     it('Symbol property isolation prevents collision with real-world errors', () => {
-        interface CustomError extends Error {
-            _maxDepth: string;
-            maxDepth: string;
-        }
-
         // User error has _maxDepth property (unlikely but possible)
         const userError = {
             message: 'User error',
@@ -76,7 +71,7 @@ describe('StdError Symbol property isolation', () => {
             maxDepth: 'more user data',
         };
 
-        const err = stderr<CustomError>(userError, { maxDepth: 10 });
+        const err = stderr(userError, { maxDepth: 10 });
 
         // User's properties should be preserved
         expect(err._maxDepth).toBe('user data');

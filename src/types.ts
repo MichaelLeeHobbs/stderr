@@ -39,18 +39,6 @@ export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     [key: symbol]: unknown;
 };
 
-/**
- * ErrorShape with errors guaranteed to be an array of ErrorShape objects.
- * Used for AggregateError-style errors with multiple sub-errors.
- */
-export type ErrorShapeWithErrorsArray = WithRequiredType<ErrorShape, 'errors', ErrorShape[]>;
-
-/**
- * ErrorShape with errors as a keyed object/dictionary of errors.
- * Used for non-standard error collections with named errors.
- */
-export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', ErrorRecord>;
-
 /* Helper Types */
 /**
  * Makes the keys K of type T required and enforces them to be of type V.
@@ -59,7 +47,7 @@ export type ErrorShapeWithErrorsObject = WithRequiredType<ErrorShape, 'errors', 
  * @typeParam K - The keys of T to make required and type-enforced.
  * @typeParam V - The type to enforce on the keys in K.
  */
-type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
+export type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
     [P in K]-?: V;
 };
 

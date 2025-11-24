@@ -42,7 +42,7 @@ export const DEFAULT_EXCLUDE_KEYS = new Set<string>([...STANDARD_ERROR_KEYS, ...
 export interface CopyPropertiesOptions {
     /** Additional keys to exclude beyond defaults */
     excludeKeys?: Set<string>;
-    /** Skip function-valued properties */
+    /** Skip function-valued properties (default: true - this is a logging library) */
     skipFunctions?: boolean;
     /** Convert symbol keys to strings (for serialization) */
     convertSymbolKeys?: boolean;

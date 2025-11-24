@@ -10,6 +10,11 @@ import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToStri
 const DEFAULT_MAX_DEPTH = 8;
 
 /**
+ * Maximum number of items to display inline in arrays/objects before summarizing
+ */
+const MAX_INLINE_ITEMS = 3;
+
+/**
  * Symbol for storing maxDepth on StdError instances
  * Using a Symbol ensures it won't collide with real-world error properties
  * and won't appear in normal property enumeration (Object.keys, for...in, etc.)
@@ -118,11 +123,11 @@ export class StdError extends Error implements ErrorShape {
             const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth']);
 
             // Use unified property copy utility
-            // Don't skip functions - they may be useful for debugging
+            // Skip functions - this is a logging library, not a debugging dump
             // Don't convert symbol keys - keep them as symbols
             copyPropertiesTo(options, this, {
                 excludeKeys,
-                skipFunctions: false,
+                skipFunctions: true,
                 convertSymbolKeys: false,
             });
         }
@@ -182,7 +187,7 @@ export class StdError extends Error implements ErrorShape {
         const lines: string[] = [];
 
         // First line: name and message
-        const name = error.name || 'Error'; // Untested code path branch 'Error'
+        const name = error.name || 'Error';
         const message = error.message || '';
         const firstLine = message ? `${name}: ${message}` : name;
         lines.push(depth === 0 ? firstLine : `${indent}${firstLine}`);
@@ -253,7 +258,7 @@ export class StdError extends Error implements ErrorShape {
 
             const items = errors.map((err, idx) => {
                 if (isErrorShaped(err)) {
-                    // Do not increase depth here as we are already increasing it for the array
+                    // Keep same depth - array container doesn't add semantic nesting level
                     const formatted = this.formatError(err as ErrorShape, depth, seen);
                     return `${indent}  [${idx}]: ${formatted.trim()}`;
                 }
@@ -304,7 +309,7 @@ export class StdError extends Error implements ErrorShape {
 
         if (isArray(value)) {
             if (value.length === 0) return '[]';
-            if (value.length > 3) return `[Array(${value.length})]`;
+            if (value.length > MAX_INLINE_ITEMS) return `[Array(${value.length})]`;
             return '[' + value.map(v => this.formatValue(v, depth + 1, seen)).join(', ') + ']';
         }
 
@@ -312,9 +317,9 @@ export class StdError extends Error implements ErrorShape {
             trackSeen(value, seen);
             const keys = Object.keys(value);
             if (keys.length === 0) return '{}';
-            if (keys.length > 3) return `{Object with ${keys.length} keys}`;
+            if (keys.length > MAX_INLINE_ITEMS) return `{Object with ${keys.length} keys}`;
 
-            const pairs = keys.slice(0, 3).map(k => `${k}: ${this.formatValue((value as ErrorRecord)[k], depth + 1, seen)}`);
+            const pairs = keys.slice(0, MAX_INLINE_ITEMS).map(k => `${k}: ${this.formatValue((value as ErrorRecord)[k], depth + 1, seen)}`);
             return '{ ' + pairs.join(', ') + ' }';
         }
 
@@ -365,7 +370,7 @@ export class StdError extends Error implements ErrorShape {
         trackSeen(error, seen);
 
         const result: ErrorShape = {
-            name: error.name || 'Error', // Branch untested 'Error'
+            name: error.name || 'Error',
             message: error.message || '',
         };
 
