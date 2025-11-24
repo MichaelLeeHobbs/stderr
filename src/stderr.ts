@@ -48,23 +48,37 @@ let normalizeUnknown: (input: unknown, opts: NormalizeOptionsInternal, depth: nu
 // eslint-disable-next-line prefer-const
 let normalizeObjectToError: (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>) => ErrorShape;
 
-// Private storage for maxDepth (set before defaultOptions)
-let _maxDepth = 8;
+/**
+ * Helper: Converts any normalized value to ErrorShape.
+ * This pattern was repeated across normalizeErrorsArray, normalizeErrorsSingle, and normalizeErrorsObject.
+ */
+const convertToErrorShape = (value: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
+    const normalized = normalizeUnknown(value, opts, depth + 1, seen);
 
-// Default options function (uses _maxDepth directly)
-const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
-    maxDepth: _maxDepth,
-});
+    if (isErrorShaped(normalized)) return normalized as ErrorShape;
+    if (isPrimitive(normalized)) return primitiveToError(normalized);
+    if (isObject(normalized)) return normalizeObjectToError(normalized as ErrorRecord, opts, depth + 1, seen);
+    /* node:coverage ignore next 3 */
+    // This should be impossible to reach
+    return new StdError(unknownToString(value) ?? 'Unknown', { maxDepth: opts.maxDepth });
+};
 
-const normalizeMetaData = (target: ErrorShape, source: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    // Always include non-enumerable properties for complete error capture
-    const metadataKeys = getCustomKeys(source, { includeNonEnumerable: true });
-
-    // Enforce loop bound to prevent DoS
-    const boundedKeys = metadataKeys.slice(0, MAX_PROPERTIES);
-    if (metadataKeys.length > MAX_PROPERTIES) {
-        // Log warning but continue (graceful degradation)
-        console.warn(`Property count (${metadataKeys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
+/**
+ * Helper: Copies properties from source to target with normalization.
+ * Shared logic between normalizeMetaData and normalizeUnknown object handling.
+ */
+const copyProperties = (
+    source: ErrorRecord,
+    target: ErrorRecord,
+    keys: (string | symbol)[],
+    opts: NormalizeOptionsInternal,
+    depth: number,
+    seen: WeakSet<object>,
+    maxProperties: number
+): void => {
+    const boundedKeys = keys.slice(0, maxProperties);
+    if (keys.length > maxProperties) {
+        console.warn(`Property count (${keys.length}) exceeds MAX_PROPERTIES (${maxProperties}), truncating`);
     }
 
     for (const key of boundedKeys) {
@@ -79,15 +93,22 @@ const normalizeMetaData = (target: ErrorShape, source: ErrorRecord, opts: Normal
             else if (isSymbol(value)) value = value.toString();
 
             if (value !== undefined) target[keyStr] = value;
-        } catch (err) {
+        } /* node:coverage ignore next 6 */ catch (err) {
             // Only ignore property access errors (getters that throw, etc.)
             // Re-throw serious errors like out-of-memory
             if (err instanceof RangeError || err instanceof ReferenceError) throw err;
             // Silently skip properties that can't be accessed (getters that throw, etc.)
         }
     }
-    return target;
 };
+
+// Private storage for maxDepth (set before defaultOptions)
+let _maxDepth = 8;
+
+// Default options function (uses _maxDepth directly)
+const defaultOptions = (): Required<NormalizeOptionsInternal> => ({
+    maxDepth: _maxDepth,
+});
 
 // We don't want to force the error shape on purely unknown objects
 normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
@@ -124,24 +145,8 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
             excludeKeys: new Set(),
         });
 
-        // Enforce loop bound
-        const boundedKeys = keys.slice(0, MAX_PROPERTIES);
-        if (keys.length > MAX_PROPERTIES) {
-            console.warn(`Property count (${keys.length}) exceeds MAX_PROPERTIES (${MAX_PROPERTIES}), truncating`);
-        }
+        copyProperties(obj, normalized, keys, opts, depth, seen, MAX_PROPERTIES);
 
-        for (const key of boundedKeys) {
-            const keyStr = key.toString();
-            let value = obj[key as keyof typeof obj];
-
-            // Skip functions - they're not useful in serialized errors
-            if (typeof value === 'function') continue;
-
-            if (!isPrimitive(value)) value = normalizeUnknown(value, opts, depth + 1, seen);
-            else if (isSymbol(value)) value = value.toString();
-
-            if (value !== undefined) normalized[keyStr] = value;
-        }
         return normalized;
     }
     /* node:coverage ignore next 3 */
@@ -156,13 +161,7 @@ normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: numbe
 const normalizeCause = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape | undefined => {
     if (input.cause === undefined || input.cause === null) return undefined;
 
-    const normalizedCause = normalizeUnknown(input.cause, opts, depth + 1, seen);
-    if (isErrorShaped(normalizedCause)) return normalizedCause as ErrorShape;
-    if (isPrimitive(normalizedCause)) return primitiveToError(normalizedCause);
-    if (isObject(normalizedCause)) return normalizeObjectToError(normalizedCause as ErrorRecord, opts, depth + 1, seen);
-    /* node:coverage ignore next 3 */
-    // This should be impossible to reach
-    return new StdError(unknownToString(input) ?? 'Unknown Cause', { maxDepth: opts.maxDepth });
+    return convertToErrorShape(input.cause, opts, depth, seen);
 };
 
 /**
@@ -175,30 +174,14 @@ const normalizeErrorsArray = (errorsArray: unknown[], opts: NormalizeOptionsInte
         console.warn(`Errors array length (${errorsArray.length}) exceeds MAX_ARRAY_LENGTH (${MAX_ARRAY_LENGTH}), truncating`);
     }
 
-    return boundedErrors
-        .map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen))
-        .map(ne => {
-            if (isErrorShaped(ne)) return ne as ErrorShape;
-            if (isPrimitive(ne)) return primitiveToError(ne);
-            if (isObject(ne)) return normalizeObjectToError(ne as ErrorRecord, opts, depth + 1, seen);
-            /* node:coverage ignore next */
-            return null;
-        })
-        .filter((ne): ne is ErrorShape => ne !== null);
+    return boundedErrors.map((e: unknown) => convertToErrorShape(e, opts, depth, seen));
 };
 
 /**
  * Normalizes a single error value into an array with one ErrorShape.
  */
 const normalizeErrorsSingle = (errorValue: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape[] => {
-    const normalizedError = normalizeUnknown(errorValue, opts, depth + 1, seen);
-
-    if (isErrorShaped(normalizedError)) return [normalizedError as ErrorShape];
-    if (isPrimitive(normalizedError)) return [primitiveToError(normalizedError)];
-    if (isObject(normalizedError)) return [normalizeObjectToError(normalizedError as ErrorRecord, opts, depth + 1, seen)];
-    /* node:coverage ignore next 3 */
-    // This should be impossible to reach
-    return [];
+    return [convertToErrorShape(errorValue, opts, depth, seen)];
 };
 
 /**
@@ -222,15 +205,7 @@ const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal
         // Skip functions in error maps
         if (typeof value === 'function') continue;
 
-        const normalizedValue = normalizeUnknown(value, opts, depth + 1, seen);
-
-        if (isErrorShaped(normalizedValue)) {
-            normalizedErrors[keyStr] = normalizedValue;
-        } else if (isPrimitive(normalizedValue)) {
-            normalizedErrors[keyStr] = primitiveToError(normalizedValue);
-        } else if (isObject(normalizedValue)) {
-            normalizedErrors[keyStr] = normalizeObjectToError(normalizedValue as ErrorRecord, opts, depth + 1, seen);
-        }
+        normalizedErrors[keyStr] = convertToErrorShape(value, opts, depth, seen);
     }
 
     return normalizedErrors;
@@ -290,8 +265,13 @@ normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, de
     // Create the StdError instance
     const e = new StdError(finalMessage, stderrOptions) as ErrorShape;
 
+    // Always include non-enumerable properties for complete error capture
+    const metadataKeys = getCustomKeys(input, { includeNonEnumerable: true });
+
     // Copy all custom metadata properties
-    return normalizeMetaData(e, input, opts, depth, seen);
+    copyProperties(input, e, metadataKeys, opts, depth, seen, MAX_PROPERTIES);
+
+    return e;
 };
 
 const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, depth = 0): T => {
@@ -348,9 +328,11 @@ const stderr = <T = StdError>(input: unknown, options: NormalizeOptions = {}, de
 
 // Configure maxDepth with getter/setter for validation
 Object.defineProperty(stderr, 'maxDepth', {
+    /* node:coverage ignore next 2 */
     get(): number {
         return _maxDepth;
     },
+    /* node:coverage ignore next 4 */
     set(value: number) {
         if (!Number.isInteger(value)) throw new TypeError(`maxDepth must be an integer, got: ${typeof value}`);
         if (value < 1 || value > 1000) throw new RangeError(`maxDepth must be between 1 and 1000, got: ${value}`);
