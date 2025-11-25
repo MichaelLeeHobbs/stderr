@@ -79,7 +79,7 @@ describe('unknownToString', () => {
             },
         };
         // Since toxicInput is a plain object, constructor.name is 'Object'
-        expect(unknownToString(toxicInput)).toBe('[object Object]');
+        expect(unknownToString(toxicInput)).toBe('[Possible Malicious Object]');
 
         // Case 2: Poisoned Symbol.toStringTag AND Poisoned Constructor
         // The function catches the first error, attempts to read constructor,
@@ -107,7 +107,7 @@ describe('unknownToString', () => {
             configurable: true,
         });
 
-        expect(unknownToString(toxicFunction)).toBe('[object Function]');
+        expect(unknownToString(toxicFunction)).toBe('[Function]');
     });
 });
 
