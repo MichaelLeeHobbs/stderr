@@ -321,7 +321,6 @@ export class StdError extends Error implements ErrorShape {
             const pairs = keys.slice(0, MAX_INLINE_ITEMS).map(k => `${k}: ${this.formatValue((value as ErrorRecord)[k], depth + 1, seen)}`);
             return '{ ' + pairs.join(', ') + ' }';
         }
-
         /* node:coverage ignore next 4 */
         // Should be impossible to reach here, but just in case
         // Fallback for unknown types
@@ -432,6 +431,7 @@ export class StdError extends Error implements ErrorShape {
         if (circularMsg) return circularMsg;
 
         // Functions
+        /* node:coverage ignore next - should never happen */
         if (typeof value === 'function') return undefined; // Functions are not serializable
 
         // Error-shaped objects

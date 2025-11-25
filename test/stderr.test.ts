@@ -1,6 +1,7 @@
 // test/stderr.test.ts
 import { stderr, StdError } from '../src';
 import { ErrorRecord, ErrorShape } from '../src/types';
+import * as console from 'node:console';
 
 describe('stderr', () => {
     // =========================================================================
@@ -894,64 +895,72 @@ describe('stderr', () => {
             expect(err.message).toBe('[object Function]');
         });
 
-        // it('handles object with too many properties gracefully', () => {
-        //     const largeObj: ErrorRecord = { message: 'large object' };
-        //     for (let i = 0; i < 1001; i++) {
-        //         largeObj[`prop${i}`] = `value${i}`;
-        //     }
-        //     const err = stderr(largeObj);
-        //     expect(err).toBeInstanceOf(Error);
-        //     expect(err.message).toBe('large object');
-        //     for (let i = 0; i < 1000; i++) {
-        //         expect((err as unknown as ErrorRecord)[`prop${i}`]).toBe(`value${i}`);
-        //     }
-        //     expect((err as unknown as ErrorRecord)['prop1000']).toBeUndefined();
-        // });
-        //
-        // it('handles object with errors prop with too many properties gracefully', () => {
-        //     const largeErrorsObj: ErrorRecord = {};
-        //     for (let i = 0; i < 1001; i++) {
-        //         largeErrorsObj[`error${i}`] = `value${i}`;
-        //     }
-        //     const input = { message: 'many errors', errors: largeErrorsObj };
-        //     const err = stderr<ErrorShapeWithErrorsObject>(input);
-        //     expect(err).toBeInstanceOf(StdError);
-        //     expect(err.message).toBe('many errors');
-        //     expect(typeof err.errors).toBe('object');
-        //     for (let i = 0; i < 1000; i++) {
-        //         expect(((err.errors as ErrorRecord)[`error${i}`] as StdError).message).toBe(`value${i}`);
-        //     }
-        //     expect((err.errors as ErrorRecord)['error1000']).toBeUndefined();
-        // });
+        it('handles object with too many properties gracefully', () => {
+            const largeObj: ErrorRecord = { message: 'large object' };
+            for (let i = 0; i < 101; i++) {
+                largeObj[`prop${i}`] = `value${i}`;
+            }
+            const err = stderr(largeObj, { maxProperties: 100 });
+            expect(err).toBeInstanceOf(Error);
+            expect(err.message).toBe('large object');
+            for (let i = 0; i < 100; i++) {
+                expect((err as unknown as ErrorRecord)[`prop${i}`]).toBe(`value${i}`);
+            }
+            expect((err as unknown as ErrorRecord)['prop100']).toBeUndefined();
+            expect(err._truncated).toBe('Property count (101) exceeds limit (100), showing first 100');
+        });
 
-        // it('handles object with an array with too many errors gracefully', () => {
-        //     const errorsArray: unknown[] = [];
-        //     for (let i = 0; i < 10001; i++) {
-        //         errorsArray.push(`error${i}`);
-        //     }
-        //     const input = { message: 'many errors', errors: errorsArray };
-        //     const err = stderr<ErrorShapeWithErrorsArray>(input);
-        //     expect(err).toBeInstanceOf(StdError);
-        //     expect(err.message).toBe('many errors');
-        //     expect(Array.isArray(err.errors)).toBe(true);
-        //     expect(err.errors.length).toBe(10000);
-        //     for (let i = 0; i < 10000; i++) {
-        //         expect(err.errors[i].message).toBe(`error${i}`);
-        //     }
-        // });
+        it('handles object with errors prop with too many properties gracefully', () => {
+            const largeErrorsObj: ErrorRecord = {};
+            for (let i = 0; i < 101; i++) {
+                largeErrorsObj[`error${i}`] = `value${i}`;
+            }
+            const input = { message: 'many errors', errors: largeErrorsObj };
+            const err = stderr(input, { maxProperties: 100 });
+            expect(err).toBeInstanceOf(StdError);
+            expect(err.message).toBe('many errors');
+            expect(typeof err.errors).toBe('object');
+            for (let i = 0; i < 100; i++) {
+                expect(((err.errors as ErrorRecord)[`error${i}`] as StdError).message).toBe(`value${i}`);
+            }
+            expect((err.errors as ErrorRecord)['error100']).toBeUndefined();
+            expect((err.errors as ErrorRecord)._truncated).toBe('Property count (101) exceeds limit (100), showing first 100');
+        });
 
-        // it('handles object with errors array with to many errors gracefully', () => {
-        //     const errorsArray: unknown[] = [];
-        //     for (let i = 0; i < 10001; i++) {
-        //         errorsArray.push(`error${i}`);
-        //     }
-        //     const input = { message: 'many errors', errors: errorsArray };
-        //     const err = stderr<ErrorShapeWithErrorsArray>(input);
-        //     expect(err).toBeInstanceOf(StdError);
-        //     expect(err.message).toBe('many errors');
-        //     expect(Array.isArray(err.errors)).toBe(true);
-        //     expect(err.errors.length).toBe(10000);
-        // });
+        it('handles object with an array with too many errors gracefully', () => {
+            const errorsArray: unknown[] = [];
+            for (let i = 0; i < 101; i++) {
+                errorsArray.push(`error${i}`);
+            }
+            const input = { message: 'many errors', errors: errorsArray };
+            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { errors: StdError[] };
+            expect(err).toBeInstanceOf(StdError);
+            expect(err.message).toBe('many errors');
+            expect(Array.isArray(err.errors)).toBe(true);
+            expect(err.errors.length).toBe(101);
+            for (let i = 0; i < 100; i++) {
+                expect(err.errors[i].message).toBe(`error${i}`);
+            }
+            expect(err.errors[100].message).toBe('[Errors array length truncated: 101 items, showing first 100]');
+        });
+
+        it('handles object with errors array with to many errors gracefully', () => {
+            const errorsArray: unknown[] = [];
+            for (let i = 0; i < 101; i++) {
+                errorsArray.push(`error${i}`);
+            }
+            const input = { message: 'many errors', errors: errorsArray };
+            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { errors: StdError[] };
+            expect(err).toBeInstanceOf(StdError);
+            expect(err.message).toBe('many errors');
+            expect(Array.isArray(err.errors)).toBe(true);
+            expect(err.errors.length).toBe(101);
+            for (let i = 0; i < 100; i++) {
+                expect(err.errors[i].message).toBe(`error${i}`);
+            }
+            expect(err.errors[99].message).toBe('error99');
+            expect(err.errors[100].message).toBe('[Errors array length truncated: 101 items, showing first 100]');
+        });
     });
 
     // =========================================================================

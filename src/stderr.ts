@@ -71,6 +71,7 @@ const convertToErrorShape = (value: unknown, opts: NormalizeOptionsInternal, dep
 
 const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
+    /* node:coverage ignore next 1 - failsafe, will always be caught before this point */
     if (depthCheck) return new StdError(depthCheck, { maxDepth: opts.maxDepth });
 
     const normalizedCause = input.cause ? convertToErrorShape(input.cause, opts, depth, seen) : undefined;
@@ -88,16 +89,16 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
             // Map of errors
             const errObj = input.errors as ErrorRecord;
             const normObj: ErrorRecord = {};
-            const keys = boundWithTruncationMarker(
-                getCustomKeys(errObj, {
-                    includeNonEnumerable: true,
-                    excludeKeys: new Set(),
-                }),
-                opts.maxProperties,
-                'Error props'
-            );
-            for (const key of keys) {
+            const allKeys = getCustomKeys(errObj, { includeNonEnumerable: true, excludeKeys: new Set() });
+            const boundedKeys = allKeys.slice(0, opts.maxProperties);
+
+            for (const key of boundedKeys) {
                 normObj[key.toString()] = convertToErrorShape(errObj[key], opts, depth, seen);
+            }
+
+            // Add truncation marker if needed
+            if (allKeys.length > opts.maxProperties) {
+                normObj._truncated = `Property count (${allKeys.length}) exceeds limit (${opts.maxProperties}), showing first ${opts.maxProperties}`;
             }
             normalizedErrors = normObj;
         } else {
@@ -157,8 +158,6 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
 
     if (isPrimitive(input)) {
         e = primitiveToError(input);
-    } else if (seen.has(input as object)) {
-        e = new StdError('[Circular Input]');
     } else {
         seen.add(input as object);
         if (isFunction(input)) {
@@ -167,8 +166,8 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
             e = normalizeObjectToError({ errors: input, name: 'AggregateError', message: 'AggregateError' }, opts, 0, seen);
         } else if (isObject(input)) {
             e = normalizeObjectToError(input as ErrorRecord, opts, 0, seen);
-        } else {
-            e = primitiveToError(unknownToString(input));
+        } /* node:coverage ignore next 3 - impossible, but TypeScript doesn't know that */ else {
+            throw new TypeError(`Cannot normalize value to StdError: ${typeof input}`);
         }
     }
 

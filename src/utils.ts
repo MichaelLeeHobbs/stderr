@@ -5,7 +5,7 @@ import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } f
 /**
  * Standard Error property keys that should be excluded when extracting custom properties
  */
-export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors']);
+export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors', 'stderr_maxDepth']);
 
 /**
  * Critical security keys that must ALWAYS be excluded to prevent security issues.
@@ -99,7 +99,7 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
         if (CRITICAL_SECURITY_KEYS.has(keyStr) || excludeKeys.has(keyStr)) return false;
 
         // If we only want enumerable keys, check enumerability
-        return !(!includeNonEnumerable && !Object.prototype.propertyIsEnumerable.call(obj, key));
+        return includeNonEnumerable || Object.prototype.propertyIsEnumerable.call(obj, key);
     });
 }
 
