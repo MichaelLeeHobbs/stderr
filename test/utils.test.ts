@@ -107,7 +107,7 @@ describe('unknownToString', () => {
             configurable: true,
         });
 
-        expect(unknownToString(toxicFunction)).toBe('[Function]');
+        expect(unknownToString(toxicFunction)).toBe('[object Function]');
     });
 });
 

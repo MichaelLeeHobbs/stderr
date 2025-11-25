@@ -32,7 +32,7 @@ export const STANDARD_OBJECT_KEYS = new Set<string>([
     'toLocaleString',
     // Find all current JavaScript standard Object prototype keys
     ...Object.getOwnPropertyNames(Object.prototype),
-    // Find all current JavaScript standard Object prototype symbol keys
+
     ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
 ]);
 
@@ -241,62 +241,46 @@ export function trackSeen(value: unknown, seen: WeakSet<object>): void {
     if (isObject(value)) seen.add(value as object);
 }
 
+/**
+ * Converts an unknown input to a string representation.
+ * Handles primitives, functions, errors, and objects with care.
+ * Catches exceptions during conversion to avoid crashes.
+ *
+ * @param input - Unknown input to convert
+ * @returns String representation of the input
+ */
 export const unknownToString = (input: unknown): string => {
-    // 1. Handle Strings
     if (isString(input)) return input;
-
-    // 2. Handle Primitives (number, boolean, symbol, undefined, null)
     if (isPrimitive(input)) return String(input);
 
-    // 3. Handle Functions explicitly
-    // (functions have a 'name' property which could confuse error detection)
-    if (typeof input === 'function') {
-        // Function.prototype.toString returns the source code of the function
-        // usually safe, but we wrap it just in case
-        try {
-            return Object.prototype.toString.call(input);
-        } catch {
-            return '[Function]';
+    try {
+        if (typeof input === 'function') return Object.prototype.toString.call(input);
+        if (isObject(input)) {
+            if (isErrorShaped(input)) return String(input.message || input.name || Object.prototype.toString.call(input));
+            const tag = Object.prototype.toString.call(input);
+            // If tag is generic but constructor has a name, use that
+            if (tag === '[object Object]' && (input as object).constructor?.name) return `[object ${(input as object).constructor.name}]`;
+            return tag;
         }
-    }
-
-    if (isObject(input)) {
+    } catch {
         try {
-            // 4. Handle Error Objects (prefer message/name over generic object string)
-            if (isErrorShaped(input)) {
-                if (input.message != null) return String(input.message);
-                if (input.name != null) return String(input.name);
-            }
-
-            // 5. Standard Object Stringification
-            // This throws if [Symbol.toStringTag] is poisoned
-            return Object.prototype.toString.call(input);
+            return `[object ${(input as object).constructor?.name ?? 'Object'}]`;
         } catch {
-            // --- MALICIOUS / BROKEN OBJECT HANDLING ---
-
-            // Attempt to salvage some information safely
-            try {
-                // Try to read the constructor name.
-                // This avoids the Symbol.toStringTag trap.
-                const constructorName = (input as object).constructor?.name;
-
-                if (constructorName) {
-                    return `[object ${constructorName}]`;
-                }
-            } catch {
-                // Accessing .constructor failed.
-                // The object is aggressively toxic (e.g., throwing getters on all properties).
-            }
-
-            // Final fallback for objects that refuse all inspection
-            return '[Possible Malicious Object]';
+            /* ignore */
         }
+        return '[Possible Malicious Object]';
     }
     /* node:coverage ignore next 3 */
     // This should be impossible to reach
     return `Unknown type: ${typeof input}`;
 };
 
+/**
+ * Converts a primitive value to a StdError instance.
+ * Handles undefined and null with specific messages.
+ * @param input - Primitive value to convert
+ * @returns StdError instance representing the primitive
+ */
 export const primitiveToError = (input: Primitive): StdError => {
     /* node:coverage ignore next */
     if (!isPrimitive(input)) throw new TypeError('Input must be a primitive value');
