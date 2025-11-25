@@ -932,16 +932,16 @@ describe('stderr', () => {
             for (let i = 0; i < 101; i++) {
                 errorsArray.push(`error${i}`);
             }
-            const input = { message: 'many errors', errors: errorsArray };
-            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { errors: StdError[] };
+            const input = { message: 'many errors', arr: errorsArray };
+            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { arr: string[] };
             expect(err).toBeInstanceOf(StdError);
             expect(err.message).toBe('many errors');
-            expect(Array.isArray(err.errors)).toBe(true);
-            expect(err.errors.length).toBe(101);
+            expect(Array.isArray(err.arr)).toBe(true);
+            expect(err.arr.length).toBe(101);
             for (let i = 0; i < 100; i++) {
-                expect(err.errors[i].message).toBe(`error${i}`);
+                expect(err.arr[i]).toBe(`error${i}`);
             }
-            expect(err.errors[100].message).toBe('[Errors array length truncated: 101 items, showing first 100]');
+            expect(err.arr[100]).toBe('[Array length truncated: 101 items, showing first 100]');
         });
 
         it('handles object with errors array with to many errors gracefully', () => {
