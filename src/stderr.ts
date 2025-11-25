@@ -69,14 +69,16 @@ export interface NormalizeOptions {
 type NormalizeOptionsInternal = Required<NormalizeOptions>;
 
 /**
- * Helper: Bounds an array to a maximum length with warning if truncated.
+ * Helper: Bounds an array to a maximum length with truncation marker if exceeded.
  * Prevents DoS attacks via excessively large arrays/property lists.
  */
-const boundWithWarning = <T>(arr: T[], maxLength: number, description: string): T[] => {
+const boundWithTruncationMarker = <T>(arr: T[], maxLength: number, description: string): (T | string)[] => {
     if (arr.length > maxLength) {
-        console.warn(`${description} (${arr.length}) exceeds limit (${maxLength}), truncating`);
+        const truncated = arr.slice(0, maxLength);
+        const marker = `[${description} truncated: ${arr.length} items, showing first ${maxLength}]`;
+        return [...truncated, marker as T];
     }
-    return arr.slice(0, maxLength);
+    return arr;
 };
 
 /**
@@ -136,7 +138,7 @@ const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth:
 
     // Arrays
     if (isArray(input)) {
-        const boundedArray = boundWithWarning(input as unknown[], opts.maxArrayLength, 'Array length');
+        const boundedArray = boundWithTruncationMarker(input as unknown[], opts.maxArrayLength, 'Array length');
         return boundedArray.map((e: unknown) => normalizeUnknown(e, opts, depth + 1, seen));
     }
 
@@ -172,7 +174,7 @@ const normalizeErrorsObject = (errorsObj: object, opts: NormalizeOptionsInternal
     const errorsRecord = errorsObj as ErrorRecord;
     const normalizedErrors: ErrorRecord = {};
     const errorKeys = getCustomKeys(errorsRecord, { includeNonEnumerable: true, excludeKeys: new Set() });
-    const boundedErrorKeys = boundWithWarning(errorKeys, opts.maxProperties, 'Error property count');
+    const boundedErrorKeys = boundWithTruncationMarker(errorKeys, opts.maxProperties, 'Error property count');
 
     for (const key of boundedErrorKeys) {
         const keyStr = key.toString();
@@ -198,7 +200,7 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
 
     if (isArray(input.errors)) {
         // Inline array normalization with bounded warning
-        const boundedErrors = boundWithWarning(input.errors as unknown[], opts.maxArrayLength, 'Errors array length');
+        const boundedErrors = boundWithTruncationMarker(input.errors as unknown[], opts.maxArrayLength, 'Errors array length');
         normalizedErrors = boundedErrors.map((e: unknown) => convertToErrorShape(e, opts, depth, seen));
     } else if (isErrorShaped(input.errors)) {
         isSingleErrorAggregate = true;
@@ -285,7 +287,6 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
         }
     }
 
-    // Always preserve original stack trace if we captured one
     // Always preserve original stack trace if we captured one
     if (originalStack) e.stack = originalStack;
 

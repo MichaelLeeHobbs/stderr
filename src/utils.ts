@@ -30,7 +30,9 @@ export const STANDARD_OBJECT_KEYS = new Set<string>([
     'valueOf',
     'proto',
     'toLocaleString',
+    // Find all current JavaScript standard Object prototype keys
     ...Object.getOwnPropertyNames(Object.prototype),
+    // Find all current JavaScript standard Object prototype symbol keys
     ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
 ]);
 
@@ -70,8 +72,9 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
     // Apply bounds if maxProperties specified
     const boundedKeys = maxProperties !== undefined && keys.length > maxProperties ? keys.slice(0, maxProperties) : keys;
 
+    // Add truncation marker if properties were truncated
     if (maxProperties !== undefined && keys.length > maxProperties) {
-        console.warn(`Property count (${keys.length}) exceeds limit (${maxProperties}), truncating`);
+        target['_truncated'] = `Property count (${keys.length}) exceeds limit (${maxProperties}), showing first ${maxProperties}`;
     }
 
     for (const key of boundedKeys) {

@@ -262,8 +262,7 @@ export class StdError extends Error implements ErrorShape {
                     const formatted = this.formatError(err as ErrorShape, depth, seen);
                     return `${indent}  [${idx}]: ${formatted.trim()}`;
                 }
-                // Do we need to increase depth here? Yes, because we are going deeper into the structure
-                // return `${indent}  [${idx}]: ${this.formatValue(err, depth + 1, seen)}`;
+                // Keep same depth - array container doesn't add semantic nesting level
                 return `${indent}  [${idx}]: ${this.formatValue(err, depth, seen)}`;
             });
 
@@ -323,6 +322,9 @@ export class StdError extends Error implements ErrorShape {
             return '{ ' + pairs.join(', ') + ' }';
         }
 
+        /* node:coverage ignore next 4 */
+        // Should be impossible to reach here, but just in case
+        // Fallback for unknown types
         return unknownToString(value);
     }
 

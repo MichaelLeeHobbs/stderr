@@ -343,29 +343,26 @@ describe('copyPropertiesTo', () => {
             const source = { a: 1, b: 2, c: 3, d: 4, e: 5 };
             const target: Record<string, unknown> = {};
 
-            // Mock console.warn
-            const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
             copyPropertiesTo(source, target, { maxProperties: 3 });
 
-            expect(Object.keys(target).length).toBe(3);
-            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Property count (5) exceeds limit (3), truncating'));
-
-            warnSpy.mockRestore();
+            // Should have 3 properties + 1 truncation marker
+            expect(Object.keys(target).length).toBe(4);
+            expect(target._truncated).toContain('Property count (5) exceeds limit (3)');
+            expect(target.a).toBeDefined();
+            expect(target.b).toBeDefined();
+            expect(target.c).toBeDefined();
+            expect(target.d).toBeUndefined();
+            expect(target.e).toBeUndefined();
         });
 
-        it('does not warn or truncate when within maxProperties limit', () => {
+        it('does not add truncation marker when within maxProperties limit', () => {
             const source = { a: 1, b: 2 };
             const target: Record<string, unknown> = {};
-
-            const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
             copyPropertiesTo(source, target, { maxProperties: 5 });
 
             expect(Object.keys(target).length).toBe(2);
-            expect(warnSpy).not.toHaveBeenCalled();
-
-            warnSpy.mockRestore();
+            expect(target._truncated).toBeUndefined();
         });
     });
 
