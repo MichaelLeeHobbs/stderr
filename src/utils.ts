@@ -249,7 +249,7 @@ export function trackSeen(value: unknown, seen: WeakSet<object>): void {
  * @param input - Unknown input to convert
  * @returns String representation of the input
  */
-export const unknownToString = (input: unknown): string => {
+export function unknownToString(input: unknown): string {
     if (isString(input)) return input;
     if (isPrimitive(input)) return String(input);
 
@@ -273,7 +273,7 @@ export const unknownToString = (input: unknown): string => {
     /* node:coverage ignore next 3 */
     // This should be impossible to reach
     return `Unknown type: ${typeof input}`;
-};
+}
 
 /**
  * Converts a primitive value to a StdError instance.
@@ -281,7 +281,7 @@ export const unknownToString = (input: unknown): string => {
  * @param input - Primitive value to convert
  * @returns StdError instance representing the primitive
  */
-export const primitiveToError = (input: Primitive): StdError => {
+export function primitiveToError(input: Primitive): StdError {
     /* node:coverage ignore next */
     if (!isPrimitive(input)) throw new TypeError('Input must be a primitive value');
 
@@ -291,4 +291,4 @@ export const primitiveToError = (input: Primitive): StdError => {
 
     // Use StdError constructor for primitives
     return new StdError(String(input));
-};
+}
