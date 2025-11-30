@@ -6,9 +6,7 @@ import { StdError } from './StdError';
 import type { ErrorRecord, ErrorShape } from './types';
 import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
 import { checkDepthLimit, getCustomKeys, primitiveToError, unknownToString, copyPropertiesTo } from './utils';
-
-const MAX_PROPERTIES = 1000;
-const MAX_ARRAY_LENGTH = 10000;
+import { MAX_ARRAY_LENGTH, MAX_DEPTH, MAX_PROPERTIES } from './constants';
 
 export interface NormalizeOptions {
     maxDepth?: number;
@@ -24,7 +22,7 @@ const validateOption = (name: string, value: number | undefined, min: number, ma
     if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
 };
 
-let _maxDepth = 8;
+let _maxDepth = MAX_DEPTH;
 let _maxProperties = MAX_PROPERTIES;
 let _maxArrayLength = MAX_ARRAY_LENGTH;
 

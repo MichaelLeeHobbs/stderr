@@ -2,29 +2,7 @@
 
 import { ErrorRecord, ErrorShape, isArray, isErrorShaped, isObject, isPrimitive, isSymbol } from './types';
 import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToString, buildExcludeKeys, copyPropertiesTo } from './utils';
-
-/**
- * Maximum depth for recursive error display in toString() and toJSON()
- * Can be overridden per instance or globally via StdError.defaultMaxDepth
- */
-const DEFAULT_MAX_DEPTH = 8;
-
-/**
- * Maximum number of properties to display/serialize
- * Can be overridden per instance or globally via StdError.defaultMaxProperties
- */
-const DEFAULT_MAX_PROPERTIES = 1000;
-
-/**
- * Maximum array length to display/serialize
- * Can be overridden per instance or globally via StdError.defaultMaxArrayLength
- */
-const DEFAULT_MAX_ARRAY_LENGTH = 10000;
-
-/**
- * Maximum number of items to display inline in arrays/objects before summarizing
- */
-const MAX_INLINE_ITEMS = 3;
+import { MAX_DEPTH, MAX_ARRAY_LENGTH, MAX_PROPERTIES, MAX_INLINE_ITEMS } from './constants';
 
 /**
  * Symbol for storing maxDepth on StdError instances
@@ -85,7 +63,7 @@ export class StdError extends Error implements ErrorShape {
      * Global default maximum depth for recursive operations
      * Can be overridden per instance
      */
-    static defaultMaxDepth: number = DEFAULT_MAX_DEPTH;
+    static defaultMaxDepth: number = MAX_DEPTH;
 
     /**
      * Creates a new StdError instance
@@ -146,8 +124,8 @@ export class StdError extends Error implements ErrorShape {
             // Don't convert symbol keys - keep them as symbols
             copyPropertiesTo(options, this, {
                 excludeKeys,
-                maxProperties: options.maxProperties ?? DEFAULT_MAX_PROPERTIES,
-                maxArrayLength: options.maxArrayLength ?? DEFAULT_MAX_ARRAY_LENGTH,
+                maxProperties: options.maxProperties ?? MAX_PROPERTIES,
+                maxArrayLength: options.maxArrayLength ?? MAX_ARRAY_LENGTH,
                 skipFunctions: true,
                 convertSymbolKeys: false,
             });
