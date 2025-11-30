@@ -17,6 +17,18 @@ type Failure<E> = { ok: false; value: null; error: E };
  */
 export type Result<T, E = StdError> = Success<T> | Failure<E>;
 
+// 1. Sync function -> Result
+export function tryCatch<T>(fn: () => T): Result<T, StdError>;
+
+// 2. Async function or Promise -> Promise<Result>
+export function tryCatch<T>(fn: Promise<T> | (() => Promise<T>)): Promise<Result<T, StdError>>;
+
+// 3. Sync function with custom error -> Result
+export function tryCatch<T, E>(fn: () => T, mapError: (err: StdError) => E): Result<T, E>;
+
+// 4. Async function or Promise with custom error -> Promise<Result>
+export function tryCatch<T, E>(fn: Promise<T> | (() => Promise<T>), mapError: (err: StdError) => E): Promise<Result<T, E>>;
+
 /**
  * Wraps a function (sync or async) to always return a Result object with standardized errors.
  *
@@ -66,38 +78,33 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
  *   console.error('Code:', r4.error.code); // r4.error is custom type
  * }
  */
-// Without mapError - error is always StdError
-export function tryCatch<T>(fn: () => T | Promise<T>): Result<T, StdError> | Promise<Result<T, StdError>>;
-// With mapError - error is transformed to E
-export function tryCatch<T, E>(fn: () => T | Promise<T>, mapError: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>>;
-// Implementation
-export function tryCatch<T, E = StdError>(fn: () => T | Promise<T>, mapError?: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>> {
+export function tryCatch<T, E = StdError>(
+    fn: (() => T | Promise<T>) | Promise<T>,
+    mapError?: (normalizedError: StdError) => E
+): Result<T, E> | Promise<Result<T, E>> {
+    // 1. Define unified helpers to ensure consistent return shapes
+    const succeed = (v: T): Success<T> => ({ ok: true, value: v, error: null });
+
+    const fail = (e: unknown): Failure<E> => {
+        const normalized = stderr(e);
+        const final = mapError ? mapError(normalized) : (normalized as unknown as E);
+        return { ok: false, value: null, error: final };
+    };
+
     try {
-        const value = fn();
-        // Detect promise-like (duck-typing for thenable)
-        if (value && typeof (value as { then?: unknown }).then === 'function') {
-            // Wrap in async IIFE to preserve literal discriminants
-            return (async (): Promise<Result<T, E>> => {
-                try {
-                    // Double cast needed: Promise<T> resolves to T
-                    const resolvedValue = (await value) as Promise<T> as T;
-                    return { ok: true as const, value: resolvedValue, error: null };
-                } catch (error) {
-                    // Always normalize via stderr first
-                    const normalizedError = stderr(error);
-                    // Then optionally transform
-                    const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
-                    return { ok: false as const, value: null, error: finalError };
-                }
-            })();
+        // 2. Unwrap the value if it's a function, otherwise use as is
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
+        const result = typeof fn === 'function' ? (fn as Function)() : fn;
+
+        // 3. Handle Async (Promise)
+        if (result && typeof result.then === 'function') {
+            return result.then(succeed).catch(fail) as Promise<Result<T, E>>;
         }
-        // Sync success path - cast to T for Result type
-        return { ok: true as const, value: value as T, error: null };
+
+        // 4. Handle Sync
+        return succeed(result as T);
     } catch (error) {
-        // Always normalize via stderr first
-        const normalizedError = stderr(error);
-        // Then optionally transform
-        const finalError = mapError ? mapError(normalizedError) : (normalizedError as E);
-        return { ok: false as const, value: null, error: finalError };
+        // 5. Handle Sync Errors (e.g., function threw immediately)
+        return fail(error);
     }
 }

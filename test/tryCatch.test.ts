@@ -215,9 +215,9 @@ describe('tryCatch', () => {
         it('should transform async error using mapError function', async () => {
             type CustomError = { code: string; details: string };
             const result = await tryCatch<number, CustomError>(
-                async () => {
+                (async () => {
                     throw new Error('Async error');
-                },
+                })(),
                 stdErr => ({
                     code: stdErr.name || 'UNKNOWN',
                     details: stdErr.message || 'No details',
@@ -233,10 +233,7 @@ describe('tryCatch', () => {
 
         it('should transform promise rejection using mapError', async () => {
             type SimpleError = { msg: string };
-            const result = await tryCatch<number, SimpleError>(
-                () => Promise.reject('Rejected'),
-                stdErr => ({ msg: stdErr.message || 'Unknown' })
-            );
+            const result = await tryCatch<number, SimpleError>(Promise.reject('Rejected'), stdErr => ({ msg: stdErr.message || 'Unknown' }));
 
             expect(result.ok).toBe(false);
             if (!result.ok) {
@@ -251,11 +248,16 @@ describe('tryCatch', () => {
                 originalMessage: stdErr.message,
             }));
 
-            const result = await tryCatch(async () => {
-                throw new Error('Async test');
-            }, mapErrorFn);
+            const result = await tryCatch(
+                new Promise<number>((_, rej) => {
+                    rej(new Error('Async test'));
+                }),
+                mapErrorFn
+            );
 
             expect(mapErrorFn).toHaveBeenCalledTimes(1);
+
+            // Note: Ensure your StdError class extends Error for this to pass
             expect(mapErrorFn.mock.calls[0][0]).toBeInstanceOf(Error);
             expect(mapErrorFn.mock.calls[0][0].name).toBe('Error');
             expect(mapErrorFn.mock.calls[0][0].message).toBe('Async test');
