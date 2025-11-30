@@ -29,13 +29,14 @@ export interface CopyPropertiesOptions {
     convertSymbolKeys?: boolean;
     normalizeValue?: (value: unknown) => unknown;
     maxProperties?: number;
+    maxArrayLength?: number;
 }
 
 /**
  * Copies properties from source to target with filtering and optional normalization.
  */
 export function copyPropertiesTo(source: object, target: Record<string | symbol, unknown>, options: CopyPropertiesOptions = {}): void {
-    const { excludeKeys = DEFAULT_EXCLUDE_KEYS, skipFunctions = true, convertSymbolKeys = false, normalizeValue, maxProperties } = options;
+    const { excludeKeys = DEFAULT_EXCLUDE_KEYS, skipFunctions = true, convertSymbolKeys = false, normalizeValue, maxProperties, maxArrayLength } = options;
 
     const keys = getCustomKeys(source, { includeNonEnumerable: true, excludeKeys });
     const limit = maxProperties !== undefined ? maxProperties : keys.length;
@@ -52,6 +53,12 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
             let value = (source as Record<string | symbol, unknown>)[key];
 
             if (skipFunctions && typeof value === 'function') continue;
+
+            // Track array truncation before normalization
+            if (maxArrayLength !== undefined && Array.isArray(value) && value.length > maxArrayLength) {
+                const truncKey = `_truncated_${String(key)}`;
+                target[truncKey] = `Array length (${value.length}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`;
+            }
 
             if (normalizeValue) {
                 value = normalizeValue(value);

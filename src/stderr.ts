@@ -18,11 +18,6 @@ export interface NormalizeOptions {
 
 type NormalizeOptionsInternal = Required<NormalizeOptions>;
 
-const boundWithTruncationMarker = <T>(arr: T[], maxLength: number, desc: string): (T | string)[] => {
-    if (arr.length <= maxLength) return arr;
-    return [...arr.slice(0, maxLength), `[${desc} truncated: ${arr.length} items, showing first ${maxLength}]` as unknown as T];
-};
-
 const validateOption = (name: string, value: number | undefined, min: number, max: number): void => {
     if (value === undefined) return;
     if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value}`);
@@ -40,7 +35,8 @@ const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth:
     seen.add(input as object);
 
     if (isArray(input)) {
-        return boundWithTruncationMarker(input, opts.maxArrayLength, 'Array length').map(e => normalizeUnknown(e, opts, depth + 1, seen));
+        // For arrays, just return the bounded slice - truncation metadata added by caller if needed
+        return input.slice(0, opts.maxArrayLength).map(e => normalizeUnknown(e, opts, depth + 1, seen));
     }
 
     if (isErrorShaped(input)) return normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
@@ -52,6 +48,7 @@ const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth:
             skipFunctions: true,
             convertSymbolKeys: true,
             maxProperties: opts.maxProperties,
+            maxArrayLength: opts.maxArrayLength,
             normalizeValue: v => (!isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, seen) : isSymbol(v) ? v.toString() : v),
         });
         return normalized;
@@ -78,13 +75,19 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
 
     let normalizedErrors: ErrorShape[] | ErrorRecord | undefined;
     let isSingleErrorAggregate = false;
+    let truncationInfo: string | undefined;
 
     // Simplified errors handling
     if (input.errors) {
         if (isArray(input.errors)) {
-            normalizedErrors = boundWithTruncationMarker(input.errors, opts.maxArrayLength, 'Errors array length').map(e =>
-                convertToErrorShape(e, opts, depth, seen)
-            );
+            const originalLength = input.errors.length;
+            const bounded = input.errors.slice(0, opts.maxArrayLength);
+            normalizedErrors = bounded.map(e => convertToErrorShape(e, opts, depth, seen));
+
+            // Track truncation info
+            if (originalLength > opts.maxArrayLength) {
+                truncationInfo = `Array length (${originalLength}) exceeds limit (${opts.maxArrayLength}), showing first ${opts.maxArrayLength}`;
+            }
         } else if (isObject(input.errors) && !isErrorShaped(input.errors)) {
             // Map of errors
             const errObj = input.errors as ErrorRecord;
@@ -124,10 +127,16 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
         errors: normalizedErrors,
     });
 
+    // Add truncation info to the error itself if array was truncated
+    if (truncationInfo) {
+        e._truncated = truncationInfo;
+    }
+
     copyPropertiesTo(input, e, {
         skipFunctions: true,
         convertSymbolKeys: true,
         maxProperties: opts.maxProperties,
+        maxArrayLength: opts.maxArrayLength,
         normalizeValue: v => (!isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, seen) : isSymbol(v) ? v.toString() : v),
     });
 

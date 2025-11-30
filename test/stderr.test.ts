@@ -933,15 +933,16 @@ describe('stderr', () => {
                 errorsArray.push(`error${i}`);
             }
             const input = { message: 'many errors', arr: errorsArray };
-            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { arr: string[] };
+            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { arr: string[]; _truncated_arr?: string };
             expect(err).toBeInstanceOf(StdError);
             expect(err.message).toBe('many errors');
             expect(Array.isArray(err.arr)).toBe(true);
-            expect(err.arr.length).toBe(101);
+            expect(err.arr.length).toBe(100); // Array is truncated to 100 elements
             for (let i = 0; i < 100; i++) {
                 expect(err.arr[i]).toBe(`error${i}`);
             }
-            expect(err.arr[100]).toBe('[Array length truncated: 101 items, showing first 100]');
+            // Truncation info is now in _truncated_arr property
+            expect(err._truncated_arr).toBe('Array length (101) exceeds limit (100), showing first 100');
         });
 
         it('handles object with errors array with to many errors gracefully', () => {
@@ -950,16 +951,17 @@ describe('stderr', () => {
                 errorsArray.push(`error${i}`);
             }
             const input = { message: 'many errors', errors: errorsArray };
-            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { errors: StdError[] };
+            const err = stderr(input, { maxArrayLength: 100 }) as StdError & { errors: StdError[]; _truncated?: string };
             expect(err).toBeInstanceOf(StdError);
             expect(err.message).toBe('many errors');
             expect(Array.isArray(err.errors)).toBe(true);
-            expect(err.errors.length).toBe(101);
+            expect(err.errors.length).toBe(100); // Array is truncated to 100 elements
             for (let i = 0; i < 100; i++) {
                 expect(err.errors[i].message).toBe(`error${i}`);
             }
             expect(err.errors[99].message).toBe('error99');
-            expect(err.errors[100].message).toBe('[Errors array length truncated: 101 items, showing first 100]');
+            // Truncation info is now in _truncated property on parent error
+            expect(err._truncated).toBe('Array length (101) exceeds limit (100), showing first 100');
         });
     });
 
