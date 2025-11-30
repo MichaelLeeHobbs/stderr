@@ -20,48 +20,57 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
 /**
  * Wraps a function (sync or async) to always return a Result object with standardized errors.
  *
- * All caught errors are first normalized via `stderr()` to StdError,
- * then optionally transformed via `mapError`.
+ * All caught errors are normalized via `stderr()` to StdError.
+ * Optionally, provide `mapError` to transform StdError into a custom error type.
  *
- * Overloads provide precise typing: synchronous functions yield a synchronous Result, while
- * asynchronous functions yield a Promise<Result>.
+ * The function automatically detects if `fn` returns a Promise and handles accordingly:
+ * - Sync return: Returns Result<T, E> immediately
+ * - Async return: Returns Promise<Result<T, E>>
  *
  * This follows the Result Pattern (Rule 6.2) and ensures consistent error handling.
  *
  * @template T - The type of the success value
- * @template E - The type of the error value (defaults to `StdError`)
- * @param fn - The function to execute (sync or async)
- * @param mapError - Optional function to transform normalized StdError into type E
- * @returns Result<T, E> for sync functions, Promise<Result<T, E>> for async functions
+ * @template E - The type of the custom error (only when mapError is provided)
+ * @param fn - Function that returns T or Promise<T>
+ * @param mapError - Optional function to transform StdError into custom type E
+ * @returns Result<T, StdError> or Promise<Result<T, StdError>> (depending on fn's return)
  *
  * @example
- * // Synchronous usage
+ * // Sync function - returns Result immediately
  * const r1 = tryCatch(() => 42);
- * if (r1.ok) {
- *   console.log(r1.value); // 42
- * } else {
- *   console.error(r1.error.toString());
+ * if (!r1.ok) {
+ *   console.error(r1.error.toString()); // r1.error is StdError
  * }
  *
  * @example
- * // Asynchronous usage
+ * // Async function - returns Promise<Result>
  * const r2 = await tryCatch(async () => fetchValue());
  * if (!r2.ok) {
- *   console.error(r2.error.toString());
+ *   console.error(r2.error.toString()); // r2.error is StdError
  * }
  *
  * @example
- * // With error transformation
- * const r3 = tryCatch(
+ * // Function returning Promise - returns Promise<Result>
+ * const r3 = await tryCatch(() => Promise.resolve('value'));
+ * if (r3.ok) {
+ *   console.log(r3.value); // 'value'
+ * }
+ *
+ * @example
+ * // With mapError - transform to custom error type
+ * const r4 = tryCatch(
  *   () => riskyOperation(),
  *   (stdErr) => ({ code: stdErr.name, details: stdErr.message })
  * );
- * if (!r3.ok) {
- *   console.error('Code:', r3.error.code);
+ * if (!r4.ok) {
+ *   console.error('Code:', r4.error.code); // r4.error is custom type
  * }
  */
-export function tryCatch<T, E = StdError>(fn: () => T, mapError?: (normalizedError: StdError) => E): Result<T, E>;
-export function tryCatch<T, E = StdError>(fn: () => Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
+// Without mapError - error is always StdError
+export function tryCatch<T>(fn: () => T | Promise<T>): Result<T, StdError> | Promise<Result<T, StdError>>;
+// With mapError - error is transformed to E
+export function tryCatch<T, E>(fn: () => T | Promise<T>, mapError: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>>;
+// Implementation
 export function tryCatch<T, E = StdError>(fn: () => T | Promise<T>, mapError?: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>> {
     try {
         const value = fn();
