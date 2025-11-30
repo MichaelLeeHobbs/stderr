@@ -56,7 +56,7 @@ try {
     const err = stderr(error);
 
     console.log(err.toString());
-    // Includes message, stack (if present), cause chain, and custom properties
+    // Includes message, stack (if present), cause chain, custom properties, everything!
 
     logger.error('Operation failed', err); // Works with typical loggers
 }
@@ -67,10 +67,19 @@ try {
 ```ts
 import { tryCatch } from 'stderr-lib';
 
-const result = await tryCatch(async () => {
+interface UserDto {
+    id: string;
+    name: string;
+}
+
+// Result<UserDto> makes the success type explicit and discoverable
+const result = await tryCatch<UserDto>(async () => {
+    // type inferred as Result<UserDto, StdError>
     const response = await fetch('/api/user/123');
-    if (!response.ok) throw new Error(`Request failed - ${response.status}`); // will be converted to StdError
-    return response.json();
+    if (!response.ok) {
+        throw new Error(`Request failed - ${response.status}`); // will be converted to StdError
+    }
+    return response.json() as Promise<UserDto>;
 });
 
 if (!result.ok) {
@@ -79,8 +88,8 @@ if (!result.ok) {
     return null;
 }
 
-// In the success branch, value is non-null and correctly typed
-console.log('User:', result.value);
+// In the success branch, value is non-null and correctly typed as UserDto
+console.log('User name:', result.value.name);
 ```
 
 ---
