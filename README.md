@@ -65,16 +65,15 @@ try {
 ### Type-Safe Error Handling with Result Pattern
 
 ```ts
-import { tryCatch } from 'stderr-lib';
+import { tryCatch, type Result } from 'stderr-lib';
 
 interface UserDto {
     id: string;
     name: string;
 }
 
-// Result<UserDto> makes the success type explicit and discoverable
+// You can pass an async function - type is inferred as Promise<Result<UserDto>>
 const result = await tryCatch<UserDto>(async () => {
-    // type inferred as Result<UserDto, StdError>
     const response = await fetch('/api/user/123');
     if (!response.ok) {
         throw new Error(`Request failed - ${response.status}`); // will be converted to StdError
@@ -143,18 +142,27 @@ Deep dives:
 
 ### `tryCatch(fn, mapError?)`
 
-Wrap a function (sync or async) and always get a `Result` instead of thrown exceptions.
+Wrap a function, async function, or Promise and always get a `Result` instead of thrown exceptions.
 
 ```ts
-// Without mapError – error is StdError
-tryCatch<T>(fn: () => T | Promise<T>): Result<T> | Promise<Result<T>>;
+// Sync function -> Result
+tryCatch<T>(fn: () => T): Result<T, StdError>;
 
-// With mapError – transform StdError into your own error type
-tryCatch<T, E>(
-  fn: () => T | Promise<T>,
-  mapError: (error: StdError) => E,
-): Result<T, E> | Promise<Result<T, E>>;
+// Async function or Promise -> Promise<Result>
+tryCatch<T>(fn: Promise<T> | (() => Promise<T>)): Promise<Result<T, StdError>>;
+
+// Sync function with custom error -> Result
+tryCatch<T, E>(fn: () => T, mapError: (err: StdError) => E): Result<T, E>;
+
+// Async function or Promise with custom error -> Promise<Result>
+tryCatch<T, E>(fn: Promise<T> | (() => Promise<T>), mapError: (err: StdError) => E): Promise<Result<T, E>>;
 ```
+
+Key features:
+
+- **Accepts Promises directly**: Pass `fetch(url)` or `() => fetch(url)` – both work
+- **Automatic sync/async detection**: Returns `Result<T>` for sync, `Promise<Result<T>>` for async
+- **Optional error transformation**: Use `mapError` to convert `StdError` to your custom error type
 
 `Result<T, E>` is:
 

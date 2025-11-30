@@ -892,15 +892,17 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<Result<Respo
 ### Graceful Degradation (Cache → DB Fallback)
 
 ```ts
-import { tryCatch } from 'stderr-lib';
+import { tryCatch, type Result } from 'stderr-lib';
 
 async function getUser(userId: string): Promise<Result<User>> {
-    const cacheResult = await tryCatch(() => fetchFromCache(userId));
+    // Pass Promise directly
+    const cacheResult = await tryCatch(fetchFromCache(userId));
 
     if (!cacheResult.ok) {
         logger.warn('Cache miss, falling back to DB', cacheResult.error);
 
-        const dbResult = await tryCatch(() => fetchFromDB(userId));
+        // Pass Promise directly
+        const dbResult = await tryCatch(fetchFromDB(userId));
 
         if (!dbResult.ok) {
             logger.error('DB fetch failed', dbResult.error);
