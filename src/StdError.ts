@@ -10,6 +10,18 @@ import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToStri
 const DEFAULT_MAX_DEPTH = 8;
 
 /**
+ * Maximum number of properties to display/serialize
+ * Can be overridden per instance or globally via StdError.defaultMaxProperties
+ */
+const DEFAULT_MAX_PROPERTIES = 1000;
+
+/**
+ * Maximum array length to display/serialize
+ * Can be overridden per instance or globally via StdError.defaultMaxArrayLength
+ */
+const DEFAULT_MAX_ARRAY_LENGTH = 10000;
+
+/**
  * Maximum number of items to display inline in arrays/objects before summarizing
  */
 const MAX_INLINE_ITEMS = 3;
@@ -84,6 +96,8 @@ export class StdError extends Error implements ErrorShape {
      * @param options.errors - Nested errors
      * @param options.name - Error name (defaults to 'Error')
      * @param options.maxDepth - Maximum recursion depth for this instance
+     * @param options.maxProperties - Maximum properties to display/serialize for this instance
+     * @param options.maxArrayLength - Maximum array length to display/serialize for this instance
      * @param options.[key] - Any additional custom properties
      *
      * @example
@@ -91,11 +105,16 @@ export class StdError extends Error implements ErrorShape {
      * new StdError('Failed', {
      *   cause: rootError,
      *   code: 'E_FAIL',
-     *   maxDepth: 10
+     *   maxDepth: 10,
+     *   maxProperties: 50,
+     *   maxArrayLength: 100
      * });
      * ```
      */
-    constructor(message?: string, options?: { cause?: unknown; errors?: unknown; name?: string; maxDepth?: number } & ErrorRecord) {
+    constructor(
+        message?: string,
+        options?: { cause?: unknown; errors?: unknown; name?: string; maxDepth?: number; maxProperties?: number; maxArrayLength?: number } & ErrorRecord
+    ) {
         super(message);
 
         // Set name
@@ -120,13 +139,15 @@ export class StdError extends Error implements ErrorShape {
         if (options) {
             // Build comprehensive exclude keys by walking prototype chain
             // Always includes critical security keys (prototype, __proto__, constructor)
-            const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth']);
+            const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth', 'maxProperties', 'maxArrayLength']);
 
             // Use unified property copy utility
             // Skip functions - this is a logging library, not a debugging dump
             // Don't convert symbol keys - keep them as symbols
             copyPropertiesTo(options, this, {
                 excludeKeys,
+                maxProperties: options.maxProperties ?? DEFAULT_MAX_PROPERTIES,
+                maxArrayLength: options.maxArrayLength ?? DEFAULT_MAX_ARRAY_LENGTH,
                 skipFunctions: true,
                 convertSymbolKeys: false,
             });
@@ -397,7 +418,10 @@ export class StdError extends Error implements ErrorShape {
         // Serialize custom properties
         const customProps = this.getCustomProperties(error);
         for (const key of customProps) {
-            if (isSymbol(key) && key === MAX_DEPTH_SYMBOL) continue; // Skip maxDepth symbol property
+            // Skip internal symbol properties
+            if (isSymbol(key) && key === MAX_DEPTH_SYMBOL) {
+                continue;
+            }
             const value = error[key];
             const serializedKey = isSymbol(key) ? key.toString() : String(key);
             if (isArray(value)) {

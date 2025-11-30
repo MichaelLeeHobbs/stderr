@@ -25,6 +25,8 @@ const validateOption = (name: string, value: number | undefined, min: number, ma
 };
 
 let _maxDepth = 8;
+let _maxProperties = MAX_PROPERTIES;
+let _maxArrayLength = MAX_ARRAY_LENGTH;
 
 const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
     if (checkDepthLimit(depth, opts.maxDepth)) return checkDepthLimit(depth, opts.maxDepth);
@@ -156,8 +158,8 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
 
     const opts: NormalizeOptionsInternal = {
         maxDepth: _maxDepth,
-        maxProperties: MAX_PROPERTIES,
-        maxArrayLength: MAX_ARRAY_LENGTH,
+        maxProperties: _maxProperties,
+        maxArrayLength: _maxArrayLength,
         ...options,
     };
     const seen = new WeakSet<object>();
@@ -191,6 +193,30 @@ Object.defineProperty(stderr, 'maxDepth', {
     set: (value: number) => {
         validateOption('maxDepth', value, 1, 1000);
         _maxDepth = value;
+    },
+    enumerable: true,
+    configurable: false,
+});
+
+Object.defineProperty(stderr, 'maxProperties', {
+    /* node:coverage ignore next */
+    get: () => _maxProperties,
+    /* node:coverage ignore next 4 */
+    set: (value: number) => {
+        validateOption('maxProperties', value, 1, 100000);
+        _maxProperties = value;
+    },
+    enumerable: true,
+    configurable: false,
+});
+
+Object.defineProperty(stderr, 'maxArrayLength', {
+    /* node:coverage ignore next */
+    get: () => _maxArrayLength,
+    /* node:coverage ignore next 4 */
+    set: (value: number) => {
+        validateOption('maxArrayLength', value, 1, 1000000);
+        _maxArrayLength = value;
     },
     enumerable: true,
     configurable: false,
