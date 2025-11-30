@@ -147,7 +147,7 @@ async function handleJob(jobId: string): Promise<void> {
 - ✅ Avoiding repetitive `try/catch` boilerplate
 
 ```ts
-import { tryCatch } from 'stderr-lib';
+import { tryCatch, type Result } from 'stderr-lib';
 
 function parseConfig(raw: string): Result<Config> {
     return tryCatch(() => JSON.parse(raw) as Config);
@@ -198,11 +198,11 @@ if (!configResult.ok) {
 3. **Avoid throwing in finally blocks**
 
     ```ts
-    // ❌ BAD: Throwing in finally masks original error
+    // ❌ BAD: Throwing in finally masks original error from try block
     try {
         await operation();
     } finally {
-        cleanup(); // If this throws, original error is lost!
+        cleanup(); // If this throws, the original error is lost!
     }
 
     // ✅ GOOD: Wrap cleanup with tryCatch
@@ -393,8 +393,11 @@ if (process.env.NODE_ENV === 'production') {
 }
 ```
 
-Monitor truncation metadata such as `_truncated` and `_truncated_<field>` in
-production logs to detect when data is being cut off.
+Monitor truncation metadata in production logs to detect when data is being cut off:
+
+- `_truncated` is added when the `errors` array is truncated
+- `_truncated_<field>` is added when a specific field's array is truncated
+- `_truncated` (in nested error objects) is added when property count exceeds limit
 
 ---
 
@@ -472,10 +475,11 @@ const badErr = stderr({
 });
 
 // ✅ BETTER: Summarize metadata
+const largeMetadata = buildVeryLargeMetadata();
 const betterErr = stderr({
     message: 'Failed',
-    metadataSummary: summarizeMetadata(buildVeryLargeMetadata()),
-    topIssues: topIssuesFromMetadata(buildVeryLargeMetadata(), 10),
+    metadataSummary: summarizeMetadata(largeMetadata),
+    topIssues: topIssuesFromMetadata(largeMetadata, 10),
 });
 ```
 
@@ -868,7 +872,7 @@ app.post('/users', async (req, res) => {
 ### Retry Logic with Backoff
 
 ```ts
-import { tryCatch } from 'stderr-lib';
+import { tryCatch, type Result } from 'stderr-lib';
 
 async function fetchWithRetry(url: string, maxRetries = 3): Promise<Result<Response>> {
     for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
@@ -969,6 +973,8 @@ res.status(500).json({ error: 'An unexpected error occurred' });
 ### ❌ Throwing in Constructors/Getters
 
 ```ts
+import { tryCatch, type Result } from 'stderr-lib';
+
 // BAD: Exceptions in constructor
 class User {
     constructor(data: unknown) {

@@ -22,7 +22,7 @@ Use it when you want:
 - Explicit, type-checked error handling instead of ad-hoc `try/catch`
 - Built‑in defenses against runaway structures (max depth, properties, array length)
 
-Advanced patterns (timeouts, limits tuning, security, performance, testing) live in
+Advanced patterns (timeouts, limit tuning, security, performance, testing) live in
 `docs/BestPractices.md`.
 
 ---
@@ -176,6 +176,7 @@ More patterns:
 
 - **[Promise Handling](./docs/BestPractices.md#promise-handling)**
 - **[Common Patterns – API Error Handling](./docs/BestPractices.md#common-patterns)**
+- **[Exception Usage – When to Use stderr vs tryCatch](./docs/BestPractices.md#exception-usage)**
 
 ---
 
