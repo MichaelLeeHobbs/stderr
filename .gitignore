@@ -132,3 +132,7 @@ dist
 # WebStorm project files
 .idea
 /ai/
+
+
+# macOS system files
+.DS_Store
