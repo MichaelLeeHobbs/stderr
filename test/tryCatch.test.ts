@@ -123,6 +123,8 @@ describe('tryCatch', () => {
         it('should transform error using mapError function', () => {
             type CustomError = { code: string; details: string };
             const result = tryCatch<number, CustomError>(
+                // TS2344: Type number does not satisfy the constraint
+                // ((...args: unknown[]) => unknown) | Promise<unknown>
                 () => {
                     throw new Error('Original error');
                 },
@@ -141,7 +143,9 @@ describe('tryCatch', () => {
 
         it('should transform string error using mapError', () => {
             type SimpleError = { msg: string };
-            const result = tryCatch<number, SimpleError>(
+            const result = tryCatch<string, SimpleError>(
+                // TS2344: Type string does not satisfy the constraint
+                // ((...args: unknown[]) => unknown) | Promise<unknown>
                 () => {
                     throw 'Something went wrong';
                 },

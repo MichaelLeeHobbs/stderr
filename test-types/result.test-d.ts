@@ -21,11 +21,11 @@ describe('Async Result types', () => {
     // Async functions - T is inferred as Promise<string>
     // The current type definition wraps the Promise inside the Result
     const asyncResult = tryCatch(async () => 'test');
-    expectType<Result<Promise<string>, StdError>>(asyncResult);
+    expectType<Promise<Result<string, StdError>>>(asyncResult);
 
     // Promise.resolve wrapped functions
     const promiseResult = tryCatch(() => Promise.resolve(123));
-    expectType<Result<Promise<number>, StdError>>(promiseResult);
+    expectType<Promise<Result<number, StdError>>>(promiseResult);
 });
 
 // ============================================================================
@@ -52,7 +52,7 @@ describe('mapError type transformation', () => {
         },
         (err): CustomError => ({ code: err.name || '', msg: err.message || '' })
     );
-    expectType<Result<Promise<never>, CustomError>>(asyncCustom);
+    expectType<Promise<Result<never, CustomError>>>(asyncCustom);
 });
 
 // ============================================================================
@@ -68,12 +68,12 @@ describe('Promise vs sync detection', () => {
     // Async function
     const asyncFn = async () => 42;
     const asyncRes = tryCatch(asyncFn);
-    expectType<Result<Promise<number>, StdError>>(asyncRes);
+    expectType<Promise<Result<number, StdError>>>(asyncRes);
 
     // Function returning Promise
     const promiseFn = () => Promise.resolve(42);
     const promiseRes = tryCatch(promiseFn);
-    expectType<Result<Promise<number>, StdError>>(promiseRes);
+    expectType<Promise<Result<number, StdError>>>(promiseRes);
 });
 
 // ============================================================================
@@ -90,11 +90,10 @@ describe('Generic type inference', () => {
 
     // Async object result
     const objectResult = tryCatch(async () => ({ key: 'value' }));
-    expectType<Result<Promise<{ key: string }>, StdError>>(objectResult);
+    expectType<Promise<Result<{ key: string }, StdError>>>(objectResult);
 
     // Explicit type parameter only works with mapError
     // Without mapError, you can't specify custom error type
-    // @ts-expect-error - E parameter requires mapError
     expectError(tryCatch<number, StdError>(() => 42));
 });
 
@@ -121,7 +120,7 @@ describe('Edge case types', () => {
     const neverResult = tryCatch((): never => {
         throw new Error('always fails');
     });
-    expectType<Result<never, StdError>>(neverResult);
+    expectType<Result<unknown, StdError>>(neverResult);
 });
 
 // ============================================================================
@@ -156,18 +155,12 @@ describe('Proper usage patterns with await', () => {
 
     // Test async function
     (async () => {
-        // Even with await, TypeScript sees this as Result<Promise<number>>
-        // because it thinks tryCatch returns an object synchronously
         const result = await tryCatch(async () => 42);
-        expectType<Result<Promise<number>, StdError>>(result);
+        expectType<Result<number, StdError>>(result);
 
         if (result.ok) {
-            // The value is the Promise
-            expectType<Promise<number>>(result.value);
+            expectType<number>(result.value);
             expectType<null>(result.error);
-
-            // To get the actual number, one would need to await the value
-            // const val = await result.value;
         } else {
             expectType<null>(result.value);
             expectType<StdError>(result.error);
@@ -188,10 +181,10 @@ describe('Proper usage patterns with await', () => {
     // Test with Promise.resolve
     (async () => {
         const result = await tryCatch(() => Promise.resolve(true));
-        expectType<Result<Promise<boolean>, StdError>>(result);
+        expectType<Result<boolean, StdError>>(result);
 
         if (result.ok) {
-            expectType<Promise<boolean>>(result.value);
+            expectType<boolean>(result.value);
         }
     })();
 
@@ -202,7 +195,7 @@ describe('Proper usage patterns with await', () => {
             async () => 'test',
             (err): CustomError => ({ code: err.name, msg: err.message })
         );
-        expectType<Result<Promise<string>, CustomError>>(result);
+        expectType<Result<string, CustomError>>(result);
 
         if (!result.ok) {
             expectType<CustomError>(result.error);

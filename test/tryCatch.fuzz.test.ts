@@ -77,11 +77,14 @@ describe('tryCatch fuzzing tests', () => {
         it('captures thrown errors with normalized StdError', () => {
             fc.assert(
                 fc.property(fc.anything(), errorValue => {
+                    // This incorrectly has type Promise<Result<unknown, StdError>> without await
                     const result = tryCatch(() => {
                         throw errorValue;
                     });
 
                     expect(result.ok).toBe(false);
+                    // TS2339: Property ok does not exist on type Promise<Result<unknown, StdError>>
+                    // tryCatch.fuzz.test.ts(84, 35): Did you forget to use await?
                     if (!result.ok) {
                         // Should be an Error instance with StdError properties
                         expect(result.error).toBeInstanceOf(Error);
