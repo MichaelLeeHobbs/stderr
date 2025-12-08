@@ -1,6 +1,6 @@
 {
     "name": "stderr-lib",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Normalize unknown error values to a standard format with cause chain support.",
     "author": "Michael L. Hobbs",
     "homepage": "https://github.com/MichaelLeeHobbs/stderr#readme",
