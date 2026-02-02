@@ -1,7 +1,7 @@
 // test-types/result.test-d.ts
-import { expectType, expectError, expectAssignable, expectNotAssignable } from 'tsd';
-import { tryCatch, StdError } from '../src';
+import { expectAssignable, expectError, expectNotAssignable, expectType } from 'tsd';
 import type { Result } from '../src';
+import { StdError, tryCatch } from '../src';
 
 // ============================================================================
 // Basic Result Type Tests
@@ -146,6 +146,48 @@ describe('Result type compatibility', () => {
 });
 
 // ============================================================================
+// Method Return Type Assignment Tests (Bug Fix Verification)
+// ============================================================================
+
+describe('Method return type assignment - async function inference', () => {
+    // This tests the exact bug scenario from real-world usage
+    // A method declares Promise<Result<T>> and uses tryCatch(async () => {...})
+    // TypeScript should correctly infer Promise<Result<T>> without explicit generics
+
+    // TODO: why is this here?
+    // type UploadResult = { key: string; url: string; size: number };
+
+    // TODO: why is this here?
+    // Simulate the upload method pattern
+    // async function upload(): Promise<Result<UploadResult, StdError>> {
+    //     return tryCatch(async () => {
+    //         const key = 'test-key';
+    //         const url = 'https://example.com/test';
+    //         const size = 1024;
+    //         return { key, url, size };
+    //     });
+    // }
+
+    // The return type of tryCatch(async () => {...}) should be Promise<Result<T>>
+    const asyncUploadResult = tryCatch(async () => {
+        return { key: 'k', url: 'u', size: 1 };
+    });
+    expectType<Promise<Result<{ key: string; url: string; size: number }, StdError>>>(asyncUploadResult);
+
+    // With explicit generic should also work (current workaround)
+    // Note: When using explicit generic with async, you must specify the unwrapped type
+    // and the function return type will be checked against Promise<T>
+    const explicitResult = tryCatch<Promise<{ key: string }>>(async () => {
+        return { key: 'test' };
+    });
+    expectType<Promise<Result<{ key: string }, StdError>>>(explicitResult);
+
+    // Async arrow function returning object
+    const arrowAsyncResult = tryCatch(async () => ({ id: 1, name: 'test' }));
+    expectType<Promise<Result<{ id: number; name: string }, StdError>>>(arrowAsyncResult);
+});
+
+// ============================================================================
 // Proper Usage with await
 // ============================================================================
 
@@ -201,6 +243,58 @@ describe('Proper usage patterns with await', () => {
             expectType<CustomError>(result.error);
             expectType<string>(result.error.code);
             expectType<string>(result.error.msg);
+        }
+    })();
+});
+
+describe('Bug: Type Error when using tryCatch with non-inferred types', () => {
+    type MyResultType = { data: string };
+
+    async function myFunction(): Promise<MyResultType> {
+        return { data: 'hello' };
+    }
+
+    // Using tryCatch without explicit generics
+    (async () => {
+        const result = await tryCatch(myFunction());
+        expectType<Result<MyResultType, StdError>>(result);
+
+        if (result.ok) {
+            expectType<MyResultType>(result.value);
+        }
+    })();
+
+    // Using tryCatch with explicit generics
+    (async () => {
+        const result = await tryCatch<MyResultType>(myFunction());
+        expectType<Result<MyResultType, StdError>>(result);
+
+        if (result.ok) {
+            expectType<MyResultType>(result.value);
+        }
+    })();
+
+    // Using tryCatch with async arrow function
+    (async () => {
+        const result = await tryCatch(async () => {
+            return { data: 'world' };
+        });
+        expectType<Result<MyResultType, StdError>>(result);
+
+        if (result.ok) {
+            expectType<MyResultType>(result.value);
+        }
+    })();
+
+    // Using tryCatch with async arrow function and explicit generics
+    (async () => {
+        const result = await tryCatch<MyResultType>(async () => {
+            return { data: 'typescript' };
+        });
+        expectType<Result<MyResultType, StdError>>(result);
+
+        if (result.ok) {
+            expectType<MyResultType>(result.value);
         }
     })();
 });

@@ -69,10 +69,20 @@ type TryCatchReturn<T, E> = [T] extends [never] ? Result<T, E> : T extends Promi
  * );
  */
 
-// Overload 1: Handle raw Promises (e.g. tryCatch(Promise.resolve(1)))
+// Overload 1: Handle sync functions that never return (always throw)
+// Must come before async overload because `never` is assignable to `Promise<T>`
+// Uses `T` parameter for compatibility when caller specifies two type parameters
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function tryCatch<T, E = StdError>(fn: () => never, mapError?: (normalizedError: StdError) => E): Result<never, E>;
+
+// Overload 2: Handle raw Promises (e.g. tryCatch(Promise.resolve(1)))
 export function tryCatch<T, E = StdError>(fn: Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
 
-// Overload 2: Handle Functions (Sync or Async)
+// Overload 3: Handle async functions with explicit unwrapped type T
+// This allows tryCatch<MyType>(async () => ...) to work correctly
+export function tryCatch<T, E = StdError>(fn: () => Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
+
+// Overload 4: Handle Functions (Sync or Async with inferred types)
 // This overload supports explicit generics like tryCatch<number, CustomError>(() => throw ...)
 export function tryCatch<T, E = StdError>(fn: () => T, mapError?: (normalizedError: StdError) => E): TryCatchReturn<T, E>;
 
