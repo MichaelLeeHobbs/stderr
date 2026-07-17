@@ -154,11 +154,12 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
     validateOption('maxProperties', options.maxProperties, 1, 100000);
     validateOption('maxArrayLength', options.maxArrayLength, 1, 1000000);
 
+    // Resolve per-field with ??, not a spread: `{...options}` copies an explicit
+    // `undefined` over the default, which would leave the recursion limits unset.
     const opts: NormalizeOptionsInternal = {
-        maxDepth: _maxDepth,
-        maxProperties: _maxProperties,
-        maxArrayLength: _maxArrayLength,
-        ...options,
+        maxDepth: options.maxDepth ?? _maxDepth,
+        maxProperties: options.maxProperties ?? _maxProperties,
+        maxArrayLength: options.maxArrayLength ?? _maxArrayLength,
     };
     const seen = new WeakSet<object>();
 
