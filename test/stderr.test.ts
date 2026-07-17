@@ -582,6 +582,51 @@ describe('stderr', () => {
     // Recursion & Depth Limiting
     // =========================================================================
     describe('Recursion & Depth Limiting', () => {
+        // An explicitly-passed `undefined` must fall back to the default, not unset the limit.
+        // Regression: options were spread over the defaults, so `{ maxDepth: undefined }`
+        // overwrote maxDepth with undefined and `depth >= undefined` disabled the guard.
+        describe('explicit undefined options fall back to defaults', () => {
+            const deepChain = () => {
+                let e = new Error('leaf');
+                for (let i = 0; i < 5000; i++) e = new Error(`L${i}`, { cause: e });
+                return e;
+            };
+
+            it('does not overflow the stack when maxDepth is explicitly undefined', () => {
+                expect(() => stderr(deepChain(), { maxDepth: undefined })).not.toThrow();
+            });
+
+            // Note: this asserts the *normalized structure*, not toString(). The display walker
+            // reads maxDepth off the StdError instance (defaulting to 8) and stays bounded either
+            // way — it is the normalize recursion that runs unbounded when the limit is unset.
+            it('still bounds the normalized cause chain when maxDepth is explicitly undefined', () => {
+                let deep: ErrorRecord = { message: 'leaf' };
+                for (let i = 0; i < 20; i++) deep = { message: `L${i}`, cause: deep };
+
+                const err = stderr(deep, { maxDepth: undefined });
+
+                let depth = 0;
+                let node: ErrorShape | undefined = err;
+                while (node?.cause) {
+                    node = node.cause as ErrorShape;
+                    depth++;
+                }
+                expect(depth).toBeLessThanOrEqual(8);
+                expect((node as ErrorShape).message).toBe('[Max depth of 8 reached]');
+            });
+
+            it('honors an explicit maxDepth alongside other undefined options', () => {
+                const err = stderr({ cause: { cause: 'deep' } }, { maxDepth: 1, maxProperties: undefined, maxArrayLength: undefined });
+                expect((err.cause as ErrorShape).message).toBe('[Max depth of 1 reached]');
+            });
+
+            it('does not truncate when maxProperties/maxArrayLength are explicitly undefined', () => {
+                const err = stderr({ message: 'x', items: [1, 2, 3], a: 1, b: 2 }, { maxProperties: undefined, maxArrayLength: undefined });
+                expect(err.items).toEqual([1, 2, 3]);
+                expect(err._truncated).toBeUndefined();
+            });
+        });
+
         it('stops recursion at maxDepth for cause', () => {
             const nested = { cause: { cause: { message: 'deep' } } }; // Depth 0 -> 1 -> 2
             const err = stderr(nested, { maxDepth: 1 });
