@@ -1,11 +1,12 @@
 // src/utils.ts
 import { StdError } from './StdError';
 import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { LEGACY_LEAK_KEYS } from './constants';
 
 /**
  * Standard Error property keys that should be excluded when extracting custom properties
  */
-export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors', 'stderr_maxDepth']);
+export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 'cause', 'errors']);
 
 /**
  * Critical security keys that must ALWAYS be excluded to prevent security issues.
@@ -103,7 +104,9 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
 
     return Reflect.ownKeys(obj).filter(key => {
         const keyStr = key.toString();
-        if (CRITICAL_SECURITY_KEYS.has(keyStr) || excludeKeys.has(keyStr)) return false;
+        // LEGACY_LEAK_KEYS sits beside CRITICAL_SECURITY_KEYS, NOT inside excludeKeys, because
+        // callers pass `excludeKeys: new Set()` (stderr.ts:46, stderr.ts:95) and would opt out.
+        if (CRITICAL_SECURITY_KEYS.has(keyStr) || LEGACY_LEAK_KEYS.has(keyStr) || excludeKeys.has(keyStr)) return false;
 
         // If we only want enumerable keys, check enumerability
         return includeNonEnumerable || Object.prototype.propertyIsEnumerable.call(obj, key);

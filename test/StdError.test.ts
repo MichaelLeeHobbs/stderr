@@ -964,13 +964,21 @@ describe('StdError', () => {
             expect(str).toContain("maxDepth: 'more user data'");
         });
 
-        it('Symbol property is accessible via getOwnPropertySymbols (by design)', () => {
+        it('internal maxDepth is not an own property (ADR-007)', () => {
             const err = new StdError('Test', { maxDepth: 10 });
-            const symbols = Object.getOwnPropertySymbols(err);
+            expect(Object.getOwnPropertySymbols(err)).toHaveLength(0);
+            expect(Reflect.ownKeys(err).map(String)).not.toContain('Symbol(stderr_maxDepth)');
+            expect(
+                Reflect.ownKeys(err)
+                    .map(String)
+                    .some(k => /maxDepth/i.test(k))
+            ).toBe(false);
+        });
 
-            // Symbol properties ARE discoverable via getOwnPropertySymbols
-            // This is expected and fine - they won't appear in normal enumeration
-            expect(symbols.length).toBeGreaterThan(0);
+        it('user symbol properties remain visible', () => {
+            const userSym = Symbol('userSym');
+            const err = new StdError('Test', { [userSym]: 'v' } as never);
+            expect(Object.getOwnPropertySymbols(err)).toHaveLength(1);
         });
 
         it('real-world fetch error does not show _maxDepth', () => {

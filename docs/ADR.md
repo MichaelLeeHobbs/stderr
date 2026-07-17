@@ -15,6 +15,7 @@
 - [ADR-004: No Timeouts in tryCatch](#adr-004-no-timeouts-in-trycatch)
 - [ADR-005: Errors Are Mutable](#adr-005-errors-are-mutable)
 - [ADR-006: No Built-in Sanitization](#adr-006-no-built-in-sanitization)
+- [ADR-007: Internal State Is Never An Own Property](#adr-007-internal-state-is-never-an-own-property)
 - [Summary of v2.0 Changes](#summary-of-v20-changes)
 - [Decision Log](#decision-log)
 
@@ -315,6 +316,77 @@ Document best practices for handling sensitive data in errors.
 
 ---
 
+## ADR-007: Internal State Is Never An Own Property
+
+**Status**: ✅ Accepted
+
+### Context
+
+This library defines "user data" as **every key `Reflect.ownKeys` returns** (`utils.ts` `getCustomKeys`), including non-enumerable ones — `copyPropertiesTo` passes `includeNonEnumerable: true`. On a `StdError`, **"own property" IS "observable output"** by construction. There is no own property that the library will decline to print.
+
+Up to and including v2.2.0, `StdError` stored per-instance `maxDepth` under a module-local `Symbol('stderr_maxDepth')` own property. Normalizing an already-normalized error copied that key through `copyPropertiesTo` with `convertSymbolKeys: true`, stringifying it into output as the literal key `"Symbol(stderr_maxDepth)"`:
+
+```
+Error: TypeError: fetch failed
+  Symbol(stderr_maxDepth): 8
+  [cause]:   SocketError: ...
+```
+
+Two `if (isSymbol(key) && key === MAX_DEPTH_SYMBOL)` guards existed (in `formatError` and `serializeError`), but they only skipped **real symbols** — the stringified key sailed past both. The bug was self-amplifying: once a leaked error reached a JSON log and was rehydrated, the key was a plain **string** and copied forward forever with no symbol involved. `tryCatch` triggers it directly, since `fail()` calls `stderr(e)`.
+
+### Decision
+
+Internal per-instance state lives **off-instance**, in a module-local `WeakMap` side table — never behind a Symbol, and never behind a non-enumerable descriptor.
+
+**Corollary**: `stderr()` is **idempotent**. `stderr(stderr(x))` is observationally identical to `stderr(x)`. This is now an executable assertion, not an aspiration.
+
+### Rationale
+
+**Why not a Symbol**: a Symbol is a **collision-avoidance** device, not a **privacy** device. The comment at the old `StdError.ts:9-11` claimed the Symbol "won't appear in normal property enumeration" — true, and irrelevant: this library exists precisely to see what normal enumeration hides. That mental model _was_ the bug; it is corrected here explicitly so it does not get re-derived.
+
+**Why not a non-enumerable descriptor**: a no-op against our own reader — `copyPropertiesTo` passes `includeNonEnumerable: true`.
+
+**Why not `Symbol.for()`**: it buys only cross-copy symbol identity for guards we deleted, and publishes an internal key into the cross-realm global registry where any package can read or forge it. The heal (below) covers the cross-copy case without that exposure.
+
+**Why not `#maxDepth`**: functionally equivalent and the cleaner endpoint, but `tsup` targets `es2020` and esbuild 0.25.2 lowers `#` to exactly this `WeakMap` (verified) — so `#` only adds test/ship divergence (ts-jest compiles src at ESNext = native `#`) plus an unconditional per-construction `WeakMap` write via `__privateAdd`, in a hot-path logging library. Revisit if the target is ever raised to es2022+.
+
+A `WeakMap` keyed on `this` also needs **no brand check**: `.get()` on a foreign object returns `undefined` and falls back to `StdError.defaultMaxDepth`, where a native `#maxDepth` would throw `TypeError`.
+
+### Healing already-corrupted errors
+
+`LEGACY_LEAK_KEYS` (`constants.ts`) drops `"Symbol(stderr_maxDepth)"` **unconditionally** on every enumeration, at the single choke point in `getCustomKeys`. This heals errors already poisoned in the wild — including errors minted by an old copy of this package still loaded in the same process (CJS/ESM dual-package or a transitive dep), whose distinct `Symbol()` stringifies to identical text. Without the heal, the fix is ineffective in a mixed-version process.
+
+It sits **beside** `CRITICAL_SECURITY_KEYS`, not inside `excludeKeys`, because two call sites pass `excludeKeys: new Set()` and would otherwise opt out. Healing is therefore irreversible for that key, by design. It is **key-only** — the filter never reads the value to sniff `typeof === 'number'`, because `getCustomKeys` has no try/catch and a throwing getter would become a crash vector.
+
+**Deliberate asymmetry a reviewer will query**: the heal fires in `getCustomKeys`, so it also applies to the plain-object branch of `stderr()`. Accepted — the key has no legitimate meaning anywhere.
+
+### Accepted Trade-offs
+
+- **Prototype-chain lookup of maxDepth is lost** (the only real semantic change). A symbol property resolves through the prototype chain; a `WeakMap` keyed on `this` does not. `Object.create(errWithMaxDepth10).toString()` inherited maxDepth 10 before; it now falls back to `StdError.defaultMaxDepth`. Same for `Object.assign(new StdError('a'), errWithMaxDepth10)`. Exotic, undocumented, untested, and itself accidental. Native `#maxDepth` would lose this identically.
+- **A user property literally named `Symbol(stderr_maxDepth)` is dropped** by the heal. It is not an Error key and not a filter for current internal state — StdError 2.3+ has no internal own property to filter. Pinned by an explicit test so it stays a decision, not an accident.
+- **`LEGACY_LEAK_KEYS` is a time-limited migration aid**, deletable once v<=2.2.0 errors have aged out of log stores. It is a **legacy quarantine**, not a filter for current internal state.
+- **`Object.getOwnPropertySymbols(stdErr).length` goes 1 -> 0.** No consumer can depend on it: `MAX_DEPTH_SYMBOL` was never exported from `src/index.ts`, so the symbol was unreachable and the value unusable.
+
+### Correction of Record
+
+The `'stderr_maxDepth'` entry in `STANDARD_ERROR_KEYS` (added in `127cc23`, 2025-11-25) **never matched any key at any version** — `Symbol('stderr_maxDepth').toString()` is `'Symbol(stderr_maxDepth)'`, and the pre-symbol field was `_maxDepth` (per `15383f7`, two days earlier). Its only live effect was silently dropping a user property named `stderr_maxDepth`, contradicting the library's own collision-preservation test. It was removed in this change; that property is now preserved.
+
+### Verification
+
+`scripts/verify-dist.mjs` gates the **shipped artifact** (both `dist/index.js` and `dist/index.mjs`, plus cross-feeding one copy's errors through the other). The original bug was reproduced against `dist/` while `src` sat at 100% coverage: jest sets `collectCoverageFrom: ['src/**/*.ts']` and has never loaded `dist/`. **Coverage was not the gap; the gate was.**
+
+### Known Related Issue (out of scope)
+
+Two residues were measured during this change and deliberately left alone. Both are pre-existing and unrelated to the symbol leak; file separately rather than expanding this fix.
+
+1. **`_truncated` / `_truncated_<key>`** (`utils.ts`) are internal markers written as own **string** keys, which ADR-007 says internal state should never be. They do copy forward on re-normalization — but, measured, they copy forward **idempotently**: `stderr(stderr(x))` carries the same marker with the same value, and does not accumulate. So this is the same _category_ as the symbol leak but **not** the same severity: there is no self-amplification. Arguably they are intended output (they describe the payload, not the library's config), which is why they are not simply swept into `LEGACY_LEAK_KEYS`. Needs a decision, not a patch.
+
+2. **Nested error stacks are re-minted on re-normalization.** `stack` is in `STANDARD_ERROR_KEYS`, so it is never copied; only the _top-level_ stack is restored (`stderr.ts`, via `originalStack`). Errors nested in `cause` / `errors` therefore get a fresh stack pointing **inside stderr-lib** instead of at the original throw site. This is the sole reason full idempotence over `toJSON()` does not hold.
+
+**Measured invariant**: with `stack` stripped, `stderr(stderr(v))` is deep-equal to `stderr(v)` across 2000 fast-check `fc.anything()` inputs. Idempotence holds **modulo stack**; the gated fuzz property in `test/stderr.fuzz.test.ts` asserts the narrower no-leak invariant so it stays green independent of item 2.
+
+---
+
 ## Summary of v2.0 Changes
 
 ### Breaking Changes
@@ -339,14 +411,15 @@ Document best practices for handling sensitive data in errors.
 
 ## Decision Log
 
-| ADR | Title                        | Status      | Impact                        |
-| --- | ---------------------------- | ----------- | ----------------------------- |
-| 001 | Recursion with Bounded Depth | ✅ Accepted | Keep recursion                |
-| 002 | maxDepth Semantics           | ✅ Accepted | Exclusive, arrays transparent |
-| 003 | Bounded Loops for Safety     | ✅ Accepted | Added safety limits           |
-| 004 | No Timeouts in tryCatch      | ✅ Accepted | User responsibility           |
-| 005 | Errors Are Mutable           | ✅ Accepted | Match standard Error          |
-| 006 | No Built-in Sanitization     | ✅ Accepted | User responsibility           |
+| ADR | Title                                   | Status      | Impact                                  |
+| --- | --------------------------------------- | ----------- | --------------------------------------- |
+| 001 | Recursion with Bounded Depth            | ✅ Accepted | Keep recursion                          |
+| 002 | maxDepth Semantics                      | ✅ Accepted | Exclusive, arrays transparent           |
+| 003 | Bounded Loops for Safety                | ✅ Accepted | Added safety limits                     |
+| 004 | No Timeouts in tryCatch                 | ✅ Accepted | User responsibility                     |
+| 005 | Errors Are Mutable                      | ✅ Accepted | Match standard Error                    |
+| 006 | No Built-in Sanitization                | ✅ Accepted | User responsibility                     |
+| 007 | Internal State Is Never An Own Property | ✅ Accepted | WeakMap side table; stderr() idempotent |
 
 ---
 

@@ -5,11 +5,15 @@ import { checkCircular, checkDepthLimit, getCustomKeys, trackSeen, unknownToStri
 import { MAX_DEPTH, MAX_ARRAY_LENGTH, MAX_PROPERTIES, MAX_INLINE_ITEMS } from './constants';
 
 /**
- * Symbol for storing maxDepth on StdError instances
- * Using a Symbol ensures it won't collide with real-world error properties
- * and won't appear in normal property enumeration (Object.keys, for...in, etc.)
+ * Per-instance maxDepth is stored OFF-instance in a module-local side table.
+ *
+ * It must never be an own property of the error. This library defines "user data" as
+ * every key `Reflect.ownKeys` returns (utils.ts:104), including non-enumerable ones
+ * (copyPropertiesTo passes includeNonEnumerable: true, utils.ts:41). On a StdError,
+ * "own property" IS "observable output" by construction. A Symbol is a collision-avoidance
+ * device, not a privacy device — see ADR-007.
  */
-const MAX_DEPTH_SYMBOL = Symbol('stderr_maxDepth');
+const maxDepthRegistry = new WeakMap<StdError, number>();
 
 /**
  * StdError is a standardized Error class that provides consistent error handling
@@ -50,9 +54,6 @@ export class StdError extends Error implements ErrorShape {
 
     /** Nested errors (AggregateError-style or custom error maps) */
     declare errors?: unknown;
-
-    /** Maximum depth for recursive operations (stored via Symbol to prevent property collision) */
-    private readonly [MAX_DEPTH_SYMBOL]?: number;
 
     /** Additional custom properties */
     [key: string]: unknown;
@@ -108,9 +109,9 @@ export class StdError extends Error implements ErrorShape {
             this.errors = options.errors;
         }
 
-        // Set maxDepth if provided (stored via Symbol to prevent property collision)
+        // Set maxDepth if provided (stored off-instance; never an own property — see ADR-007)
         if (options?.maxDepth !== undefined) {
-            this[MAX_DEPTH_SYMBOL] = options.maxDepth;
+            maxDepthRegistry.set(this, options.maxDepth);
         }
 
         // Copy any additional properties
@@ -136,7 +137,7 @@ export class StdError extends Error implements ErrorShape {
      * Gets the effective max depth for this instance
      */
     private getMaxDepth(): number {
-        return this[MAX_DEPTH_SYMBOL] ?? StdError.defaultMaxDepth;
+        return maxDepthRegistry.get(this) ?? StdError.defaultMaxDepth;
     }
 
     /**
@@ -201,7 +202,6 @@ export class StdError extends Error implements ErrorShape {
         const customProps = this.getCustomProperties(error);
         if (customProps.length > 0) {
             customProps.forEach(key => {
-                if (isSymbol(key) && key === MAX_DEPTH_SYMBOL) return; // Skip maxDepth symbol property
                 const value = error[key];
                 const formattedValue = this.formatValue(value, depth + 1, seen);
                 lines.push(`${indent}  ${String(key)}: ${formattedValue}`);
@@ -396,10 +396,6 @@ export class StdError extends Error implements ErrorShape {
         // Serialize custom properties
         const customProps = this.getCustomProperties(error);
         for (const key of customProps) {
-            // Skip internal symbol properties
-            if (isSymbol(key) && key === MAX_DEPTH_SYMBOL) {
-                continue;
-            }
             const value = error[key];
             const serializedKey = isSymbol(key) ? key.toString() : String(key);
             if (isArray(value)) {

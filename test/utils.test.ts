@@ -1,5 +1,6 @@
 // src/utils.test.ts
-import { unknownToString, primitiveToError, copyPropertiesTo } from '../src/utils';
+import { unknownToString, primitiveToError, copyPropertiesTo, STANDARD_ERROR_KEYS } from '../src/utils';
+import { LEGACY_LEAK_KEYS } from '../src/constants';
 
 describe('unknownToString', () => {
     it('should handle string inputs', () => {
@@ -480,5 +481,30 @@ describe('copyPropertiesTo', () => {
             expect(target.foo).toBe('bar');
             expect(target.num).toBe(42);
         });
+    });
+});
+
+// =============================================================================
+// Pin the legacy-leak filter so it cannot silently rot again (ADR-007)
+// =============================================================================
+describe('LEGACY_LEAK_KEYS filter', () => {
+    it('quarantines exactly the historically leaked key', () => {
+        // Hardcoded literal ON PURPOSE: this is the oracle, not a restatement of the source.
+        expect(LEGACY_LEAK_KEYS.has('Symbol(stderr_maxDepth)')).toBe(true);
+    });
+
+    it('no longer carries the dead `stderr_maxDepth` entry in STANDARD_ERROR_KEYS', () => {
+        expect(STANDARD_ERROR_KEYS.has('stderr_maxDepth')).toBe(false);
+    });
+
+    it('cannot be opted out of via excludeKeys', () => {
+        const src = { message: 'm', 'Symbol(stderr_maxDepth)': 8 };
+        const target: Record<string | symbol, unknown> = {};
+
+        // `excludeKeys: new Set()` is the point: the two real call sites pass exactly this.
+        copyPropertiesTo(src, target, { convertSymbolKeys: true, excludeKeys: new Set() });
+
+        expect(target['Symbol(stderr_maxDepth)']).toBeUndefined();
+        expect(target.message).toBe('m');
     });
 });

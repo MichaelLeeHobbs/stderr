@@ -25,3 +25,24 @@ export const MAX_ARRAY_LENGTH = 10000;
  * This is a display-only constant and cannot be overridden.
  */
 export const MAX_INLINE_ITEMS = 3;
+
+/**
+ * Keys produced by a historical internal-state leak in stderr-lib <= 2.2.0.
+ *
+ * Up to 2.2.0, StdError stored maxDepth under `Symbol('stderr_maxDepth')` as an own
+ * property. Re-normalizing an already-normalized error copied it through
+ * copyPropertiesTo with convertSymbolKeys: true, stringifying it into output as the
+ * literal key "Symbol(stderr_maxDepth)". Once such an error reaches a JSON log and is
+ * rehydrated the key is a plain STRING and copies forward forever with no symbol involved.
+ *
+ * These keys are therefore dropped UNCONDITIONALLY on every enumeration, so that
+ * corrupted errors heal on normalization — including errors minted by an old copy of
+ * this package still loaded in the same process (CJS/ESM dual-package or a transitive dep),
+ * whose distinct Symbol() stringifies to the identical text.
+ *
+ * ACCEPTED TRADE-OFF: a user property literally named "Symbol(stderr_maxDepth)" is dropped.
+ * This is not an Error key and not a filter for current internal state — StdError 2.3+ has
+ * no internal own property to filter (ADR-007). This list is a LEGACY QUARANTINE and may be
+ * deleted once v<=2.2.0 errors have aged out of log stores.
+ */
+export const LEGACY_LEAK_KEYS: ReadonlySet<string> = new Set<string>(['Symbol(stderr_maxDepth)']);
