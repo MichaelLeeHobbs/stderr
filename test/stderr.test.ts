@@ -1433,3 +1433,128 @@ describe('stderr', () => {
         });
     });
 });
+
+// =============================================================================
+// Regression: internal symbol leaked into output on re-normalization (ADR-007)
+// =============================================================================
+describe('idempotency / internal state never leaks', () => {
+    const LEAKED_JSON =
+        '{"name":"TypeError","message":"fetch failed","Symbol(stderr_maxDepth)":8,"cause":{"name":"Error","message":"boom","Symbol(stderr_maxDepth)":8}}';
+
+    it('stderr() is idempotent: stderr(stderr(x)) is observationally identical to stderr(x)', () => {
+        const a = stderr(new Error('boom'));
+        const b = stderr(a);
+        const c = stderr(b);
+
+        expect(b.toString()).toBe(a.toString());
+        expect(c.toString()).toBe(a.toString());
+        expect(b.toJSON()).toEqual(a.toJSON());
+        expect(c.toJSON()).toEqual(a.toJSON());
+    });
+
+    it('re-normalization does not leak the internal key into toString() (production artifact)', () => {
+        const e = new Error('fetch failed', { cause: new Error('boom') });
+        const s = stderr(stderr(e)).toString();
+        expect(s).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('re-normalization does not leak the internal key into toJSON(), root or cause', () => {
+        const e = new Error('fetch failed', { cause: new Error('boom') });
+        const json = stderr(stderr(e)).toJSON() as ErrorRecord;
+
+        expect(JSON.stringify(json)).not.toMatch(/Symbol\(stderr_/);
+        expect(Object.keys(json)).not.toContain('Symbol(stderr_maxDepth)');
+        expect(Object.keys(json.cause as ErrorRecord)).not.toContain('Symbol(stderr_maxDepth)');
+    });
+
+    it('does not accumulate keys over N-fold re-normalization', () => {
+        let e: unknown = new Error('x', { cause: new Error('y') });
+        for (let i = 0; i < 5; i++) e = stderr(e);
+        expect(JSON.stringify(e)).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('heals an error rehydrated from a poisoned JSON log (no symbol involved)', () => {
+        const leaked = JSON.parse(LEAKED_JSON);
+        const n = stderr(leaked);
+
+        expect(JSON.stringify(n)).not.toMatch(/Symbol\(stderr_/);
+        expect(n.toString()).not.toMatch(/Symbol\(stderr_/);
+        expect(n['Symbol(stderr_maxDepth)']).toBeUndefined();
+        expect(Object.keys((n.toJSON() as ErrorRecord).cause as ErrorRecord)).not.toContain('Symbol(stderr_maxDepth)');
+    });
+
+    it('heals a poisoned cause at construction time (bypassing stderr())', () => {
+        const e = new StdError('wrapper', { cause: JSON.parse(LEAKED_JSON) });
+        expect(e.toString()).not.toMatch(/Symbol\(stderr_/);
+        expect(JSON.stringify(e)).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('heals a forged/foreign-copy symbol of the same description', () => {
+        const foreign = Symbol('stderr_maxDepth');
+        const n = stderr({ message: 'm', [foreign]: 99 });
+
+        expect(JSON.stringify(n)).not.toMatch(/Symbol\(stderr_/);
+        expect(n.toString()).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('ACCEPTED TRADE-OFF: a user property literally named "Symbol(stderr_maxDepth)" is dropped', () => {
+        const n = stderr({ message: 'm', 'Symbol(stderr_maxDepth)': 'user data' });
+        expect(n['Symbol(stderr_maxDepth)']).toBeUndefined();
+    });
+
+    it('BEHAVIOR CHANGE: a user property named "stderr_maxDepth" is now preserved', () => {
+        const n = stderr({ message: 'm', stderr_maxDepth: 'user data' });
+        expect(n.stderr_maxDepth).toBe('user data');
+        expect(n.toString()).toContain("stderr_maxDepth: 'user data'");
+    });
+
+    it('maxDepth still works after the storage swap, and re-normalizing preserves the pinned shape', () => {
+        const deep = new Error('l0', { cause: new Error('l1', { cause: new Error('l2', { cause: new Error('l3', { cause: new Error('l4') }) }) }) });
+        const noStack = (s: string): string =>
+            s
+                .split('\n')
+                .filter(l => !l.includes(' at '))
+                .join('\n');
+
+        // The feature itself still works: maxDepth is honored off-instance.
+        const truncated = stderr(deep, { maxDepth: 2 });
+        expect(noStack(truncated.toString())).toBe(['Error: l0', '  [cause]:   Error: l1', '    [cause]: [Max depth of 2 reached]'].join('\n'));
+
+        // Re-normalizing with the default (8) yields byte-for-byte what main produced
+        // MINUS the two leaked `Symbol(stderr_maxDepth): 2` lines. The truncation marker is
+        // baked into the deepest cause's MESSAGE as literal data by the first normalize, so it
+        // survives re-normalization -- that is pre-existing behavior and is pinned here on purpose.
+        const renormalized = stderr(truncated);
+        expect(noStack(renormalized.toString())).toBe(['Error: l0', '  [cause]:   Error: l1', '    [cause]:     Error: [Max depth of 2 reached]'].join('\n'));
+        expect(renormalized.toString()).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('an un-constructed instance falls back to defaultMaxDepth instead of throwing', () => {
+        // A StdError-prototyped object that never went through the constructor is absent from the
+        // registry. `.get()` returns undefined and getMaxDepth falls back -- where a native
+        // `#maxDepth` field would throw TypeError. This is the no-brand-check property of ADR-007.
+        const uninitialized = Object.create(StdError.prototype) as StdError;
+        uninitialized.name = 'X';
+        uninitialized.message = 'y';
+
+        expect(() => uninitialized.toString()).not.toThrow();
+        expect(uninitialized.toString()).toContain('X: y');
+        expect(() => uninitialized.toJSON()).not.toThrow();
+        expect(uninitialized.toJSON()).toMatchObject({ name: 'X', message: 'y' });
+    });
+
+    it('a StdError from a SECOND module copy does not leak through this copy (dual-package)', () => {
+        let CopyB!: typeof import('../src/StdError');
+        jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- isolateModules is require-only by design
+            CopyB = require('../src/StdError');
+        });
+        expect(CopyB.StdError).not.toBe(StdError);
+
+        const inner = new CopyB.StdError('inner', { maxDepth: 4 });
+        const outer = new StdError('outer', { cause: inner });
+
+        expect(outer.toString()).not.toMatch(/Symbol\(stderr_/);
+        expect(JSON.stringify(outer)).not.toMatch(/Symbol\(stderr_/);
+    });
+});

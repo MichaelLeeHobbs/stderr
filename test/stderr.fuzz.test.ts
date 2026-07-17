@@ -288,3 +288,19 @@ describe('stderr fuzzing tests', () => {
         });
     });
 });
+
+// =============================================================================
+// Property: re-normalizing ANY input never surfaces internal state (ADR-007)
+// =============================================================================
+describe('Property: internal state never leaks on re-normalization', () => {
+    it('stderr(stderr(anything)) never emits a Symbol(stderr_*) key', () => {
+        fc.assert(
+            fc.property(fc.anything(), input => {
+                const renormalized = stderr(stderr(input));
+                expect(String(renormalized)).not.toMatch(/Symbol\(stderr_/);
+                expect(JSON.stringify(renormalized) ?? '').not.toMatch(/Symbol\(stderr_/);
+            }),
+            { numRuns: 500 }
+        );
+    });
+});

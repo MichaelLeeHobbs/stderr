@@ -1,5 +1,6 @@
 // test/tryCatch.test.ts
 import { tryCatch } from '../src/tryCatch';
+import { stderr } from '../src/stderr';
 
 describe('tryCatch', () => {
     describe('synchronous', () => {
@@ -272,5 +273,33 @@ describe('tryCatch', () => {
                 expect(result.error.originalMessage).toBe('Async test');
             }
         });
+    });
+});
+
+// =============================================================================
+// Regression: fail() calls stderr(e), so throwing an already-normalized error
+// through tryCatch re-normalized it and leaked the internal key (ADR-007).
+// =============================================================================
+describe('tryCatch does not leak internal state when re-normalizing (ADR-007)', () => {
+    it('sync: throwing an already-normalized StdError does not leak', () => {
+        const result = tryCatch(() => {
+            throw stderr(new Error('boom'));
+        });
+
+        expect(result.ok).toBe(false);
+        expect(String(result.error)).not.toMatch(/Symbol\(stderr_/);
+        expect(JSON.stringify(result.error)).not.toMatch(/Symbol\(stderr_/);
+    });
+
+    it('async: throwing an already-normalized StdError does not leak', async () => {
+        const result = await tryCatch(
+            (async () => {
+                throw stderr(new Error('boom'));
+            })()
+        );
+
+        expect(result.ok).toBe(false);
+        expect(String(result.error)).not.toMatch(/Symbol\(stderr_/);
+        expect(JSON.stringify(result.error)).not.toMatch(/Symbol\(stderr_/);
     });
 });
