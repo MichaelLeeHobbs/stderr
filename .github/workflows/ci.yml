@@ -11,9 +11,9 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                # Pin the floor (18 matches `engines` in package.json) so a regression
+                # Pin the floor (20 matches `engines` in package.json) so a regression
                 # that only appears on the oldest supported Node still fails CI.
-                node-version: [18, 20, 22, 24]
+                node-version: [20, 22, 24]
         steps:
             - uses: actions/checkout@v7
 
