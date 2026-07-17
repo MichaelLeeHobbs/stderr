@@ -1,0 +1,66 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                # Pin the floor (20 matches `engines` in package.json) so a regression
+                # that only appears on the oldest supported Node still fails CI.
+                node-version: [20, 22, 24]
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: ${{ matrix.node-version }}
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+
+            - run: pnpm run test:coverage
+
+            - run: pnpm run build
+
+            # verify:dist reads the built dist/ and is the gate that caught the
+            # internal-symbol leak (ADR-007) while src sat at 100% coverage. Runs
+            # after build, on every Node so a Node-specific build regression fails here.
+            - run: pnpm run verify:dist
+
+            - uses: actions/upload-artifact@v7
+              if: always()
+              with:
+                  name: coverage-node-${{ matrix.node-version }}
+                  path: coverage/
+
+    static:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+
+            # Static checks (format, lint, type) are Node-independent — run once on a
+            # modern Node rather than across the runtime matrix above.
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+
+            - run: pnpm run format:check
+
+            - run: pnpm run lint
+
+            - run: pnpm run typecheck
+
+            - run: pnpm run typecheck:test-types
