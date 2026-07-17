@@ -110,6 +110,9 @@ Key points:
     - `name`, `message`, `stack` (if present)
     - `cause`, `errors` (AggregateError / validation errors)
     - Custom properties (e.g., `code`, `statusCode`, metadata)
+        - One exception: a property literally named `Symbol(stderr_maxDepth)` is always dropped. Versions `<= 2.2.0` leaked that key into
+          output as internal state, so it is quarantined and removed on normalization to heal errors captured by those versions
+          (see [ADR-007](./docs/ADR.md#adr-007-internal-state-is-never-an-own-property)).
 - Adds safe defaults to avoid DoS:
     - `maxDepth` (default `8`, range `1–1000`)
     - `maxProperties` (default `1000`, range `1–100000`)
