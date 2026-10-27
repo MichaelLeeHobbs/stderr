@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
+import { existsSync, readFileSync } from 'node:fs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const distDir = resolve(here, '..', 'dist');
@@ -39,6 +40,22 @@ const assertClean = (label, err) => {
     const json = JSON.stringify(err) ?? '';
     assert(!LEAK_RE.test(json), `${label}: JSON.stringify() leaked internal state:\n${json}`);
 };
+
+// ESM consumers must get ESM declarations: a single .d.ts is read as CJS, so TypeScript would accept a
+// default import that does not exist at runtime under Node ESM.
+console.log('\npackage.json exports');
+check('import and require each point at their own declarations', () => {
+    const pkg = JSON.parse(readFileSync(resolve(here, '..', 'package.json'), 'utf8'));
+    const root = pkg.exports['.'];
+    for (const [cond, ext] of [
+        ['import', '.d.mts'],
+        ['require', '.d.ts'],
+    ]) {
+        const types = root[cond]?.types;
+        assert(typeof types === 'string' && types.endsWith(ext), `exports["."].${cond}.types should be a ${ext} file, got ${JSON.stringify(types)}`);
+        assert(existsSync(resolve(here, '..', types)), `${types} does not exist`);
+    }
+});
 
 const require = createRequire(import.meta.url);
 const cjs = require(resolve(distDir, 'index.js'));
