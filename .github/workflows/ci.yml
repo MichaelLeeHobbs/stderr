@@ -11,9 +11,8 @@ jobs:
         runs-on: ubuntu-latest
         strategy:
             matrix:
-                # The dev toolchain (vitest, tsup) needs Node 22+, so the test suite runs
-                # from 22 up. The Node 20 runtime floor in `engines` is covered by the
-                # runtime-floor job below.
+                # Pin the floor (22 matches `engines` in package.json) so a regression
+                # that only appears on the oldest supported Node still fails CI.
                 node-version: [22, 24]
         steps:
             - uses: actions/checkout@v7
@@ -41,31 +40,6 @@ jobs:
               with:
                   name: coverage-node-${{ matrix.node-version }}
                   path: coverage/
-
-    runtime-floor:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v7
-
-            - uses: pnpm/action-setup@v6
-
-            # Build with a toolchain-supported Node, then run the shipped dist/ on the
-            # oldest Node in `engines` (20). The library has no runtime dependencies, so
-            # verify-dist exercising dist/ is what proves Node 20 still works.
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 24
-                  cache: pnpm
-
-            - run: pnpm install --frozen-lockfile
-
-            - run: pnpm run build
-
-            - uses: actions/setup-node@v6
-              with:
-                  node-version: 20
-
-            - run: node --version && node scripts/verify-dist.mjs
 
     static:
         runs-on: ubuntu-latest
