@@ -1,6 +1,6 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, ownKeysOrEmpty, Primitive } from './types';
 import { LEGACY_LEAK_KEYS, MAX_REPEATED_REFERENCES } from './constants';
 
 /**
@@ -132,13 +132,8 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
     if (truncated) markers.push(['_truncated', truncated]);
 
     for (const key of boundedKeys) {
-        let value: unknown;
-        try {
-            value = (source as Record<string | symbol, unknown>)[key];
-        } catch {
-            continue;
-        }
-
+        // A throwing getter reads as undefined, and undefined values are skipped below
+        let value = safeGet(source, key);
         if (skipFunctions && typeof value === 'function') continue;
 
         if (maxArrayLength !== undefined && isArray(value)) {
@@ -215,15 +210,7 @@ export interface GetCustomKeysOptions {
 export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): (string | symbol)[] {
     const { includeNonEnumerable = false, excludeKeys = DEFAULT_EXCLUDE_KEYS } = options;
 
-    let ownKeys: (string | symbol)[];
-    try {
-        ownKeys = Reflect.ownKeys(obj);
-    } catch {
-        // Revoked Proxy or a throwing ownKeys trap: nothing readable
-        return [];
-    }
-
-    return ownKeys.filter(key => {
+    return ownKeysOrEmpty(obj).filter(key => {
         const keyStr = key.toString();
         // LEGACY_LEAK_KEYS sits beside CRITICAL_SECURITY_KEYS, NOT inside excludeKeys, because
         // callers pass `excludeKeys: new Set()` (stderr.ts:46, stderr.ts:95) and would opt out.

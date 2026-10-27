@@ -39,18 +39,6 @@ export type ErrorShape = Omit<Error, 'name' | 'message'> & {
     [key: symbol]: unknown;
 };
 
-/* Helper Types */
-/**
- * Makes the keys K of type T required and enforces them to be of type V.
- *
- * @typeParam T - The base object type.
- * @typeParam K - The keys of T to make required and type-enforced.
- * @typeParam V - The type to enforce on the keys in K.
- */
-export type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
-    [P in K]-?: V;
-};
-
 /* Basic Type Guards */
 export const isString = (input: unknown): input is string => typeof input === 'string';
 
@@ -79,20 +67,12 @@ export const isInstanceOf = <T>(value: unknown, ctor: abstract new (...args: nev
     }
 };
 
-export const isErrorInstance = (v: unknown): v is Error => {
-    try {
-        return v instanceof Error;
-    } catch {
-        // Revoked Proxy: instanceof calls getPrototypeOf, which throws
-        return false;
-    }
-};
+export const isErrorInstance = (v: unknown): v is Error => isInstanceOf(v, Error);
 
-export const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined | symbol | bigint => {
-    return !isObject(value) && typeof value !== 'function';
-};
+export const isPrimitive = (value: unknown): value is Primitive => !isObject(value) && typeof value !== 'function';
 
-const ownKeysOrEmpty = (input: object): (string | symbol)[] => {
+/** `Reflect.ownKeys` that returns [] instead of throwing. */
+export const ownKeysOrEmpty = (input: object): (string | symbol)[] => {
     try {
         return Reflect.ownKeys(input);
     } catch {
