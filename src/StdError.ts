@@ -11,6 +11,7 @@ import {
     formatDate,
     freeKey,
     getCustomKeys,
+    isMarkerKey,
     type Limits,
     safeGet,
     setLimit,
@@ -465,11 +466,9 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
             const cut = newCut(error, serializedKey, value, ctx);
             if (cut) cuts.push(cut);
         }
-        if (truncated) addMarker(result, '_truncated', truncated);
-        for (const [key, message] of cuts) addMarker(result, key, message);
         // A long errors list is cut when serialized: mark it, as stderr() does
         const errorsCut = isErrorsMap(errors) ? undefined : collectionTruncation(errors, ctx.maxArrayLength);
-        if (errorsCut) addMarker(result, '_truncated', errorsCut);
+        addMarkers(result, keys, ctx, [truncated, errorsCut], cuts);
 
         return result;
     } finally {
@@ -484,6 +483,17 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
 const serializeErrors = (errors: unknown, depth: number, ctx: WalkContext): unknown =>
     guarded(() => (isErrorsMap(errors) ? serializeObject(errors, depth, ctx, true) : serializeValue(errors, depth, ctx, true)));
 
+/**
+ * Adds the `_truncated` messages, then the `_truncated_<key>` cuts, after the properties are written. Together with
+ * the markers carried over in `keptKeys` they stay within maxProperties + 1, as boundKeys() allows: one walk adds
+ * at most that many, whatever an input carries. A cut left out is still shown as a shorter array.
+ */
+const addMarkers = (result: ErrorRecord, keptKeys: (string | symbol)[], ctx: WalkContext, messages: (string | undefined)[], cuts: [string, string][]): void => {
+    const all: [string, string][] = [...messages.filter(isString).map((m): [string, string] => ['_truncated', m]), ...cuts];
+    const room = ctx.maxProperties + 1 - keptKeys.filter(isMarkerKey).length;
+    for (const [key, message] of all.slice(0, Math.max(0, room))) addMarker(result, key, message);
+};
+
 /** A plain object in the `errors` slot: a map of errors keyed by field. */
 const isErrorsMap = (errors: unknown): errors is object => isObject(errors) && !isArray(errors) && !isErrorLike(errors) && !isBuiltIn(errors);
 
@@ -492,6 +502,8 @@ const isErrorsMap = (errors: unknown): errors is object => isObject(errors) && !
  * None when the source already carries that marker: stderr() and the constructor mark what they cut themselves.
  */
 const newCut = (source: object, key: string, value: unknown, ctx: WalkContext): [string, string] | undefined => {
+    // A carried marker's value is a library message, not data to mark
+    if (isMarkerKey(key)) return undefined;
     const markerKey = `_truncated_${key}`;
     if (Object.prototype.hasOwnProperty.call(source, markerKey)) return undefined;
     const cut = collectionTruncation(value, ctx.maxArrayLength);
@@ -601,8 +613,7 @@ const serializeObject = (value: object, depth: number, ctx: WalkContext, lenient
             const cut = newCut(value, serializedKey, item, ctx);
             if (cut) cuts.push(cut);
         }
-        if (truncated) addMarker(result, '_truncated', truncated);
-        for (const [key, message] of cuts) addMarker(result, key, message);
+        addMarkers(result, keys, ctx, [truncated], cuts);
 
         return result;
     } finally {

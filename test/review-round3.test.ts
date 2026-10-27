@@ -164,3 +164,19 @@ describe('R7: a map of errors with two symbol keys of the same description keeps
         expect(Object.keys(e.errors as object)).toHaveLength(2);
     });
 });
+
+describe('R3 follow-up: markers added by toJSON() stay within maxProperties + 1 (found by the hostile fuzz suite)', () => {
+    const markerCount = (o: object) => Object.keys(o).filter(k => k === '_truncated' || k.startsWith('_truncated_')).length;
+
+    it('does not mark the value of a carried marker as a cut collection', () => {
+        const errors = { name: 0n, cause: 'x', _truncated: new Set([1, 2, 3]) };
+        const json = new StdError('x', { maxDepth: 1, maxProperties: 1, maxArrayLength: 2, errors }).toJSON();
+        expect(markerCount(json.errors as object)).toBeLessThanOrEqual(2);
+    });
+
+    it('drops cut markers beyond the allowance', () => {
+        const e = new StdError('x', { maxProperties: 1, maxArrayLength: 1 });
+        Object.assign(e, { _truncated: 'carried', a: [1, 2], b: [1, 2], errors: [1, 2] });
+        expect(markerCount(e.toJSON())).toBeLessThanOrEqual(2);
+    });
+});
