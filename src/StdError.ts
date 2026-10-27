@@ -473,14 +473,15 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
             const value = safeGet(error, key);
             // Distinct symbols can share a description: keep both instead of overwriting
             const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : String(key);
-            if (isArray(value)) {
-                // Do not increase depth here as we are already increasing it for the array
-                result[serializedKey] = serializeArray(value, depth, ctx, false);
-                continue;
-            }
-            result[serializedKey] = serializeValue(value, depth + 1, ctx, false);
+            // Do not increase depth for an array as we are already increasing it for its items
+            result[serializedKey] = isArray(value) ? guarded(() => serializeArray(value, depth, ctx, false)) : serializeValue(value, depth + 1, ctx, false);
         }
         if (truncated) addMarker(result, '_truncated', truncated);
+        // A long errors array is cut by serializeArray: mark it, as stderr() does
+        const errorCount = isArray(errors) ? safeGet(errors, 'length') : undefined;
+        if (typeof errorCount === 'number' && errorCount > ctx.maxArrayLength) {
+            addMarker(result, '_truncated', `Array length (${errorCount}) exceeds limit (${ctx.maxArrayLength}), showing first ${ctx.maxArrayLength}`);
+        }
 
         return result;
     } finally {

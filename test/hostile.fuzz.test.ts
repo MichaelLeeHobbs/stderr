@@ -144,6 +144,30 @@ describe('hostile values: toJSON() and toString() of stderr() output', () => {
     });
 });
 
+describe('hostile values: StdError built directly', () => {
+    it('the constructor, toJSON(), JSON.stringify() and toString() never throw', () => {
+        fc.assert(
+            fc.property(descArb, descArb, descArb, (data, cause, errors) => {
+                const e = new StdError('x', { data: build(data), cause: build(cause), errors: build(errors) });
+                assertPlainJson(e.toJSON());
+                expect(typeof JSON.stringify(e)).toBe('string');
+                expect(typeof e.toString()).toBe('string');
+            }),
+            { numRuns: RUNS }
+        );
+    });
+
+    it('toJSON() respects maxProperties and maxArrayLength', () => {
+        fc.assert(
+            fc.property(descArb, limitsArb, (desc, limits) => {
+                const e = new StdError('x', { ...limits, data: build(desc), errors: build(desc) });
+                assertBounded(e.toJSON(), limits);
+            }),
+            { numRuns: RUNS }
+        );
+    });
+});
+
 describe('hostile values: re-normalization', () => {
     it('stderr(stderr(x)) serializes like stderr(x), apart from stacks', () => {
         fc.assert(
