@@ -27,11 +27,11 @@ stderr('x', { maxDepht: 3 });
 // @ts-expect-error limits are numbers
 stderr('x', { maxDepth: '3' });
 
-// KNOWN BUG T1: the README documents `stderr.maxDepth = 10`, but the global limits are not part of stderr's type
-// @ts-expect-error KNOWN BUG T1
+// T1: the README documents `stderr.maxDepth = 10`, so the global limits are part of stderr's type
 stderr.maxDepth = 10;
-// @ts-expect-error KNOWN BUG T1
+expectTypeOf(stderr.maxDepth).toEqualTypeOf<number>();
 expectTypeOf(stderr.maxProperties).toEqualTypeOf<number>();
+expectTypeOf(stderr.maxArrayLength).toEqualTypeOf<number>();
 
 // ============================================================================
 // StdError

@@ -209,6 +209,17 @@ const normalizeObjectToError = (input: ErrorRecord, opts: Limits, depth: number,
     return e;
 };
 
+/** stderr() plus the global limits used when an option is not given. Invalid values throw TypeError/RangeError. */
+interface Stderr {
+    (input: unknown, options?: NormalizeOptions): StdError;
+    /** Default 8, integer 1-1000 */
+    maxDepth: number;
+    /** Default 1000, integer 1-100000 */
+    maxProperties: number;
+    /** Default 10000, integer 1-1000000 */
+    maxArrayLength: number;
+}
+
 /**
  * Normalize any input into a StdError instance.
  * Never throws: an input that cannot be read at all (e.g. a revoked Proxy) becomes a placeholder StdError.
@@ -216,7 +227,7 @@ const normalizeObjectToError = (input: ErrorRecord, opts: Limits, depth: number,
  * @param options - Normalization options
  * @returns Normalized StdError instance
  */
-const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
+const stderr = ((input: unknown, options: NormalizeOptions = {}): StdError => {
     validateLimits(options);
 
     // Resolve per-field with ??, not a spread: `{...options}` copies an explicit
@@ -238,7 +249,7 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
     const ErrorCtor = Error as ErrorConstructor & { captureStackTrace?: (target: object, ctor?: unknown) => void };
     if (!isString(result.stack) && typeof ErrorCtor.captureStackTrace === 'function') ErrorCtor.captureStackTrace(result, stderr);
     return result;
-};
+}) as Stderr;
 
 const normalizeRoot = (input: unknown, opts: Limits, tracker: VisitTracker): StdError => {
     if (isPrimitive(input)) return errorFromPrimitive(input);
