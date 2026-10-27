@@ -109,7 +109,8 @@ Key points:
 - Preserves:
     - `name`, `message`, `stack` (if present)
     - `cause`, `errors` (AggregateError / validation errors)
-    - Custom properties (e.g., `code`, `statusCode`, metadata)
+    - Custom properties (e.g., `code`, `statusCode`, metadata). Only **own** properties are copied: a getter defined on an
+      error class (`get code() {...}`) is not.
         - One exception: a property literally named `Symbol(stderr_maxDepth)` is always dropped. Versions `<= 2.2.0` leaked that key into
           output as internal state, so it is quarantined and removed on normalization to heal errors captured by those versions
           (see [ADR-007](./docs/ADR.md#adr-007-internal-state-is-never-an-own-property)).
@@ -126,9 +127,9 @@ All `stderr()` results are instances of `StdError`.
 
 Important properties (non‑exhaustive):
 
-- `name?: string`
-- `message?: string`
-- `stack?: string`
+- `name: string`
+- `message: string`
+- `stack?: string` (the original stack; for a value that had none, `stderr()` gives the root the stack of its caller)
 - `cause?: unknown`
 - `errors?: unknown` (arrays or maps of nested errors)
 - `[key: string]: unknown` – arbitrary extra metadata
@@ -137,6 +138,10 @@ Important methods:
 
 - `toString(): string` – human‑readable, multi‑line representation with cause chain and nested errors
 - `toJSON(): object` – JSON‑safe representation suitable for logging systems and transports
+
+Both respect the instance limits (`maxDepth`, `maxProperties`, `maxArrayLength`) and mark what they leave out with `_truncated`.
+`new StdError(message, { maxDepth, maxProperties, maxArrayLength })` and `StdError.defaultMaxDepth` / `defaultMaxProperties` /
+`defaultMaxArrayLength` accept the same ranges as `stderr()` and throw `TypeError`/`RangeError` otherwise.
 
 Deep dives:
 
@@ -166,6 +171,8 @@ Key features:
 - **Accepts Promises directly**: Pass `fetch(url)` or `() => fetch(url)` – both work
 - **Automatic sync/async detection**: Returns `Result<T>` for sync, `Promise<Result<T>>` for async
 - **Optional error transformation**: Use `mapError` to convert `StdError` to your custom error type
+- **`any` stays sync**: `tryCatch(() => JSON.parse(text))` is typed `Result<any>`. An `async` function or a `Promise` is still typed
+  `Promise<Result<...>>`; only an explicit `tryCatch<any>(async () => ...)` loses that, so let TypeScript infer the type there
 
 `Result<T, E>` is:
 

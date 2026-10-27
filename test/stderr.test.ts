@@ -499,7 +499,7 @@ describe('stderr', () => {
             const err = stderr(input) as StdError & { errors: StdError[] };
             expect(err).toBeInstanceOf(StdError);
             expect(err.name).toBe('AggregateError');
-            expect(err.message).toBe('AggregateError'); // Defaults message (as per design)
+            expect(err.message).toBe('single'); // The input's own message is kept (pre-3.0.0 review B1)
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors.length).toBe(1);
             expect(err.errors[0]).toBeInstanceOf(Error);
@@ -510,7 +510,7 @@ describe('stderr', () => {
             const input = { message: 'single', errors: new Error('inner') };
             const err = stderr(input) as StdError & { errors: StdError[] };
             expect(err.name).toBe('AggregateError');
-            expect(err.message).toBe('AggregateError');
+            expect(err.message).toBe('single');
             expect(Array.isArray(err.errors)).toBe(true);
             expect(err.errors.length).toBe(1);
             expect(err.errors[0]).toBeInstanceOf(Error);
@@ -527,15 +527,16 @@ describe('stderr', () => {
             expect(err.errors).toBeUndefined();
         });
 
-        it('handles non-array iterable errors (e.g. Set) by creating an empty object map', () => {
+        it('normalizes a Set of errors like an array', () => {
             const input = new Error('with set errors') as ErrorShape;
             input.errors = new Set(['a', new Error('b')]);
             const normalized = stderr(input);
             expect(normalized).toBeInstanceOf(Error);
             expect(normalized.name).toBe('Error');
             expect(normalized.message).toBe('with set errors');
-            expect(typeof normalized.errors).toBe('object');
-            expect(normalized.errors).toEqual({});
+            const errors = normalized.errors as StdError[];
+            expect(Array.isArray(errors)).toBe(true);
+            expect(errors.map(e => e.message)).toEqual(['a', 'b']);
         });
 
         it('normalizes errors object map where item is plain object (non-error-shaped)', () => {

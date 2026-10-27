@@ -363,7 +363,7 @@ It sits **beside** `CRITICAL_SECURITY_KEYS`, not inside `excludeKeys`, because t
 ### Accepted Trade-offs
 
 - **Prototype-chain lookup of maxDepth is lost** (the only real semantic change). A symbol property resolves through the prototype chain; a `WeakMap` keyed on `this` does not. `Object.create(errWithMaxDepth10).toString()` inherited maxDepth 10 before; it now falls back to `StdError.defaultMaxDepth`. Same for `Object.assign(new StdError('a'), errWithMaxDepth10)`. Exotic, undocumented, untested, and itself accidental. Native `#maxDepth` would lose this identically.
-- **A user property literally named `Symbol(stderr_maxDepth)` is dropped** by the heal. It is not an Error key and not a filter for current internal state — StdError 2.3+ has no internal own property to filter. Pinned by an explicit test so it stays a decision, not an accident.
+- **A user property literally named `Symbol(stderr_maxDepth)` is dropped** by the heal. It is not an Error key and not a filter for current internal state — StdError 3.0+ has no internal own property to filter. Pinned by an explicit test so it stays a decision, not an accident.
 - **`LEGACY_LEAK_KEYS` is a time-limited migration aid**, deletable once v<=2.2.0 errors have aged out of log stores. It is a **legacy quarantine**, not a filter for current internal state.
 - **`Object.getOwnPropertySymbols(stdErr).length` goes 1 -> 0.** No consumer can depend on it: `MAX_DEPTH_SYMBOL` was never exported from `src/index.ts`, so the symbol was unreachable and the value unusable.
 
