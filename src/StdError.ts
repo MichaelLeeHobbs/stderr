@@ -154,42 +154,26 @@ export class StdError extends Error implements ErrorShape {
         if (options) validateLimits(options);
 
         super(message);
-
-        // Set name
         this.name = (options?.name as string) || 'Error';
+        if (!options) return;
 
-        // Set cause if provided and supported
-        if (options?.cause !== undefined) {
-            this.cause = options.cause;
-        }
-
-        // Set errors if provided
-        if (options?.errors !== undefined) {
-            this.errors = options.errors;
-        }
+        if (options.cause !== undefined) this.cause = options.cause;
+        if (options.errors !== undefined) this.errors = options.errors;
 
         // Limits are stored off-instance; never own properties — see ADR-007
-        if (options?.maxDepth !== undefined || options?.maxProperties !== undefined || options?.maxArrayLength !== undefined) {
-            limitsRegistry.set(this, { maxDepth: options.maxDepth, maxProperties: options.maxProperties, maxArrayLength: options.maxArrayLength });
+        const { maxDepth, maxProperties, maxArrayLength } = options;
+        if (maxDepth !== undefined || maxProperties !== undefined || maxArrayLength !== undefined) {
+            limitsRegistry.set(this, { maxDepth, maxProperties, maxArrayLength });
         }
 
-        // Copy any additional properties
-        if (options) {
-            // Build comprehensive exclude keys by walking prototype chain
-            // Always includes critical security keys (prototype, __proto__, constructor)
-            const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth', 'maxProperties', 'maxArrayLength']);
-
-            // Use unified property copy utility
-            // Skip functions - this is a logging library, not a debugging dump
-            // Don't convert symbol keys - keep them as symbols
-            copyPropertiesTo(options, this, {
-                excludeKeys,
-                maxProperties: options.maxProperties ?? StdError.defaultMaxProperties,
-                maxArrayLength: options.maxArrayLength ?? StdError.defaultMaxArrayLength,
-                skipFunctions: true,
-                convertSymbolKeys: false,
-            });
-        }
+        // Everything else is a custom property. Excluding every key on the prototype chain also keeps out
+        // the critical security keys (prototype, __proto__, constructor). Functions are skipped (this is a
+        // logging library, not a debugging dump) and symbol keys stay symbols.
+        copyPropertiesTo(options, this, {
+            excludeKeys: buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth', 'maxProperties', 'maxArrayLength']),
+            maxProperties: maxProperties ?? defaults.maxProperties,
+            maxArrayLength: maxArrayLength ?? defaults.maxArrayLength,
+        });
     }
 
     /**
@@ -248,9 +232,9 @@ export class StdError extends Error implements ErrorShape {
 const createWalkContext = (error: StdError): WalkContext => {
     const limits = limitsRegistry.get(error);
     return {
-        maxDepth: limits?.maxDepth ?? StdError.defaultMaxDepth,
-        maxProperties: limits?.maxProperties ?? StdError.defaultMaxProperties,
-        maxArrayLength: limits?.maxArrayLength ?? StdError.defaultMaxArrayLength,
+        maxDepth: limits?.maxDepth ?? defaults.maxDepth,
+        maxProperties: limits?.maxProperties ?? defaults.maxProperties,
+        maxArrayLength: limits?.maxArrayLength ?? defaults.maxArrayLength,
         tracker: new VisitTracker(),
     };
 };
@@ -529,8 +513,7 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
 const serializeValueUnguarded = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown => {
     // Primitives (JSON.stringify cannot handle bigint, so it becomes a string)
     if (value === null || value === undefined) return value;
-    if (isSymbol(value)) return value.toString();
-    if (typeof value === 'bigint') return value.toString();
+    if (isSymbol(value) || typeof value === 'bigint') return value.toString();
     if (isPrimitive(value)) return value;
 
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
