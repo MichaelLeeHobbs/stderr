@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // scripts/verify-dist.mjs
 //
-// External gate over the SHIPPED artifact. The jest suite collects coverage from src/**
+// External gate over the SHIPPED artifact. The vitest suite collects coverage from src/**
 // only and never loads dist/ — the internal-symbol leak (ADR-007) was reproduced against
 // dist/ while src sat at 100% coverage. Coverage was not the gap; the gate was.
 //
-// Runs OUTSIDE jest on purpose: jest must not require a build.
+// Runs OUTSIDE vitest on purpose: the test suite must not require a build.
 
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -77,7 +77,7 @@ for (const [label, mod] of copies) {
     });
 }
 
-// The dual-package case src-only jest cannot reach: two loaded copies => two distinct
+// The dual-package case the src-only test suite cannot reach: two loaded copies => two distinct
 // Symbol() values. This is what proves Symbol.for() was unnecessary.
 console.log('\ncross-feed (dual-package hazard)');
 

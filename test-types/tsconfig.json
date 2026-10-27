@@ -8,9 +8,10 @@
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
         "resolveJsonModule": true,
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "allowSyntheticDefaultImports": true,
-        "noEmit": true
+        "noEmit": true,
+        "types": ["node"]
     },
     "include": ["./**/*.ts"],
     "exclude": ["node_modules"]

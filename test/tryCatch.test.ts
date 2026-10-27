@@ -1,4 +1,5 @@
 // test/tryCatch.test.ts
+import { describe, expect, it, vi } from 'vitest';
 import { tryCatch } from '../src/tryCatch';
 import { stderr } from '../src/stderr';
 
@@ -160,7 +161,7 @@ describe('tryCatch', () => {
         });
 
         it('should pass normalized StdError to mapError function', () => {
-            const mapErrorFn = jest.fn(stdErr => ({
+            const mapErrorFn = vi.fn(stdErr => ({
                 transformed: true,
                 originalName: stdErr.name,
                 originalMessage: stdErr.message,
@@ -247,7 +248,7 @@ describe('tryCatch', () => {
         });
 
         it('should pass normalized StdError to mapError function in async context', async () => {
-            const mapErrorFn = jest.fn(stdErr => ({
+            const mapErrorFn = vi.fn(stdErr => ({
                 transformed: true,
                 originalName: stdErr.name,
                 originalMessage: stdErr.message,

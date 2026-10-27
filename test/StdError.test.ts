@@ -1,4 +1,5 @@
 // test/StdError.test.ts
+import { describe, expect, it } from 'vitest';
 import { StdError } from '../src/StdError';
 import { stderr } from '../src';
 import * as console from 'node:console';

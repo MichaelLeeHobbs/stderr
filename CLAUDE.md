@@ -13,24 +13,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 pnpm run build        # Build with tsup (outputs to dist/)
-pnpm run test         # Run Jest tests
+pnpm run test         # Run Vitest tests (no coverage)
+pnpm run test:coverage # Run Vitest with coverage thresholds
 pnpm run test:watch   # Run tests in watch mode
 pnpm run lint         # Run ESLint
 pnpm run lint:fix     # Run ESLint with auto-fix
-pnpm run typecheck    # TypeScript type checking
+pnpm run typecheck    # TypeScript type checking (src, then tests)
 pnpm run typecheck:test-types  # Type-check test-types/*.test-d.ts files
 ```
 
 Run a single test file:
 
 ```bash
-pnpm run test -- test/stderr.test.ts
+pnpm run test test/stderr.test.ts
 ```
 
 Run a specific test by name:
 
 ```bash
-pnpm run test -- -t "test name pattern"
+pnpm run test -t "test name pattern"
 ```
 
 ## Architecture
@@ -63,4 +64,4 @@ pnpm run test -- -t "test name pattern"
 
 ## Coverage Requirements
 
-Tests must maintain 95% coverage across branches, functions, lines, and statements (configured in jest.config.ts).
+Tests must maintain 95% coverage across branches, functions, lines, and statements (configured in vitest.config.ts, istanbul provider).

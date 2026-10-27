@@ -1,4 +1,5 @@
 // test/stderr.fuzz.test.ts
+import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { stderr } from '../src';
 import { StdError } from '../src/StdError';
