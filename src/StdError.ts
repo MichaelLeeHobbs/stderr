@@ -346,7 +346,9 @@ const formatCause = (cause: unknown, depth: number, ctx: WalkContext): string =>
 /**
  * Formats the errors property (array or object)
  */
-const formatErrors = (errors: unknown, depth: number, ctx: WalkContext): string => {
+const formatErrors = (errors: unknown, depth: number, ctx: WalkContext): string => guarded(() => formatErrorsUnguarded(errors, depth, ctx));
+
+const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext): string => {
     const indent = '  '.repeat(depth);
 
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
@@ -383,7 +385,9 @@ const formatErrors = (errors: unknown, depth: number, ctx: WalkContext): string 
 /**
  * Formats a generic value for display
  */
-const formatValue = (value: unknown, depth: number, ctx: WalkContext): string => {
+const formatValue = (value: unknown, depth: number, ctx: WalkContext): string => guarded(() => formatValueUnguarded(value, depth, ctx));
+
+const formatValueUnguarded = (value: unknown, depth: number, ctx: WalkContext): string => {
     // Primitives are always shown: the depth limit exists to stop recursion, and they do not recurse
     if (value === null) return 'null';
     if (value === undefined) return 'undefined';
@@ -460,7 +464,7 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
         const errors = safeGet(error, 'errors');
         if (errors !== undefined && errors !== null) {
             // Do not increase depth here as we are already increasing it for the array
-            result.errors = serializeValue(errors, depth, ctx, true);
+            result.errors = serializeErrors(errors, depth, ctx);
         }
 
         // Serialize custom properties
@@ -485,6 +489,34 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
 };
 
 /**
+ * Serializes the `errors` slot. A plain object there is a map of errors keyed by field, as stderr() reads it:
+ * a field called `name` or `message` ({ name: 'required', email: 'invalid' }) does not make the map an error.
+ */
+const serializeErrors = (errors: unknown, depth: number, ctx: WalkContext): unknown =>
+    guarded(() => {
+        const isMap = isObject(errors) && !isArray(errors) && !isErrorLike(errors) && !isBuiltIn(errors);
+        if (!isMap) return serializeValue(errors, depth, ctx, true);
+        return serializeObject(errors, depth, ctx, true);
+    });
+
+/** Date, RegExp, Map and Set: objects whose state is not in own properties. */
+const isBuiltIn = (value: unknown): boolean => isInstanceOf(value, Date) || isInstanceOf(value, RegExp) || isInstanceOf(value, Map) || isInstanceOf(value, Set);
+
+/**
+ * A value that cannot be read at all (a Proxy of a Date, Object.create(Map.prototype), a throwing Proxy trap)
+ * becomes this marker instead of making toJSON()/toString() throw.
+ */
+const UNREADABLE = '[Unreadable value]';
+
+const guarded = <T>(fn: () => T): T | string => {
+    try {
+        return fn();
+    } catch {
+        return UNREADABLE;
+    }
+};
+
+/**
  * Serializes array items at `itemDepth`, bounded by maxArrayLength and guarded against cycles through arrays
  */
 const serializeArray = (value: unknown[], itemDepth: number, ctx: WalkContext, lenient: boolean): unknown => {
@@ -502,7 +534,10 @@ const serializeArray = (value: unknown[], itemDepth: number, ctx: WalkContext, l
  * `lenient` treats any error-shaped object as an error (used for cause/errors, where that is the
  * meaning of the slot); otherwise only real Errors and {message + name|stack} objects are (metadata).
  */
-const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown => {
+const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown =>
+    guarded(() => serializeValueUnguarded(value, depth, ctx, lenient));
+
+const serializeValueUnguarded = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown => {
     // Primitives (JSON.stringify cannot handle bigint, so it becomes a string)
     if (value === null || value === undefined) return value;
     if (isSymbol(value)) return value.toString();
@@ -525,6 +560,8 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
     // Arrays
     if (isArray(value)) return serializeArray(value, depth + 1, ctx, lenient);
 
+    if (!isInstanceOf(value, Map) && !isInstanceOf(value, Set)) return serializeObject(value, depth, ctx, false);
+
     const marker = ctx.tracker.enter(value);
     if (marker) return marker;
 
@@ -535,19 +572,32 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
                 .slice(0, ctx.maxArrayLength)
                 .map(([k, v]) => [serializeValue(k, depth + 1, ctx, false), serializeValue(v, depth + 1, ctx, false)]);
         }
-        if (isInstanceOf(value, Set)) {
-            return Array.from(value.values())
-                .slice(0, ctx.maxArrayLength)
-                .map(v => serializeValue(v, depth + 1, ctx, false));
-        }
+        return Array.from((value as Set<unknown>).values())
+            .slice(0, ctx.maxArrayLength)
+            .map(v => serializeValue(v, depth + 1, ctx, false));
+    } finally {
+        ctx.tracker.leave(value);
+    }
+};
 
-        // Plain objects: enumerable string and symbol keys, bounded together
+/**
+ * Plain objects: enumerable string and symbol keys, bounded together.
+ * `lenientValues` serializes each value as an error slot (used for a map of errors).
+ */
+const serializeObject = (value: object, depth: number, ctx: WalkContext, lenientValues: boolean): unknown => {
+    const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
+    if (depthMsg) return depthMsg;
+
+    const marker = ctx.tracker.enter(value);
+    if (marker) return marker;
+
+    try {
         const result: ErrorRecord = {};
         const { keys, truncated } = boundKeys(getCustomKeys(value, { excludeKeys: new Set() }), ctx.maxProperties);
 
         for (const key of keys) {
             const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : key;
-            result[serializedKey] = serializeValue(safeGet(value, key), depth + 1, ctx, false);
+            result[serializedKey] = serializeValue(safeGet(value, key), depth + 1, ctx, lenientValues);
         }
         if (truncated) addMarker(result, '_truncated', truncated);
 
