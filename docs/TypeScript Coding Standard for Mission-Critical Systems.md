@@ -464,10 +464,7 @@ type StateValue = (typeof State)[keyof typeof State];
 
 // Define discriminated union using the const-asserted values
 type AppState =
-    | { kind: typeof State.LOADING }
-    | { kind: typeof State.SUCCESS; data: string }
-    | { kind: typeof State.ERROR; error: Error }
-    | { kind: typeof State.IDLE };
+    { kind: typeof State.LOADING } | { kind: typeof State.SUCCESS; data: string } | { kind: typeof State.ERROR; error: Error } | { kind: typeof State.IDLE };
 
 // Exhaustiveness checking helper
 function assertUnreachable(x: never): never {

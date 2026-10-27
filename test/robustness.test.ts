@@ -2,6 +2,7 @@
 //
 // Edge cases for the fixes behind the 2026-10-27 review findings (see review-findings.test.ts):
 // hostile inputs, built-in objects, shared references and per-instance limits.
+import { describe, expect, it } from 'vitest';
 import { stderr } from '../src/stderr';
 import { StdError } from '../src/StdError';
 import { tryCatch } from '../src/tryCatch';

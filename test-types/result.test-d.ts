@@ -1,4 +1,5 @@
 // test-types/result.test-d.ts
+import { describe } from 'vitest';
 import { expectAssignable, expectError, expectNotAssignable, expectType } from 'tsd';
 import type { Result } from '../src';
 import { StdError, tryCatch } from '../src';

@@ -3,6 +3,7 @@
 // Regression tests for the findings from the 2026-10-27 code review.
 // Each test asserts the correct behaviour; all of them failed before the fixes (except #13, a withdrawn finding).
 // Numbers match the review document. Further edge cases for the fixes live in robustness.test.ts.
+import { describe, expect, it } from 'vitest';
 import { stderr } from '../src/stderr';
 import { StdError } from '../src/StdError';
 import { tryCatch } from '../src/tryCatch';
@@ -111,7 +112,7 @@ describe('review findings', () => {
     });
 
     describe('#7 falsy cause is dropped', () => {
-        it.each([0, '', false])('should keep cause %p', cause => {
+        it.each([0, '', false])('should keep cause %o', cause => {
             const result = stderr({ message: 'm', cause });
 
             expect('cause' in result).toBe(true);

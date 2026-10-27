@@ -1,4 +1,5 @@
 // test/stderr.test.ts
+import { describe, expect, it, vi } from 'vitest';
 import { stderr, StdError } from '../src';
 import { ErrorRecord, ErrorShape } from '../src/types';
 import * as console from 'node:console';
@@ -1263,7 +1264,7 @@ describe('stderr', () => {
 
                 try {
                     await fetch('https://invalid-host-that-does-not-exist-12345.com');
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1296,7 +1297,7 @@ describe('stderr', () => {
                         setTimeout(() => reject(new Error('Timeout')), 5000);
                     });
                     await Promise.race([fetchPromise, timeoutPromise]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1324,7 +1325,7 @@ describe('stderr', () => {
 
                 try {
                     await fetchTimeout('https://invalid-host-that-does-not-exist-12345.com', { timeout: 5000 });
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1348,7 +1349,7 @@ describe('stderr', () => {
                     const p1 = Promise.reject(new TypeError('Type error from promise'));
                     const p2 = new Promise(resolve => setTimeout(resolve, 1000));
                     await Promise.race([p1, p2]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1369,7 +1370,7 @@ describe('stderr', () => {
                     const p1 = Promise.reject(customError);
                     const p2 = new Promise(resolve => setTimeout(resolve, 1000));
                     await Promise.race([p1, p2]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1390,7 +1391,7 @@ describe('stderr', () => {
                     const p1 = Promise.reject(topError);
                     const p2 = new Promise(resolve => setTimeout(resolve, 1000));
                     await Promise.race([p1, p2]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1408,7 +1409,7 @@ describe('stderr', () => {
                     const p1 = Promise.reject('Plain string error');
                     const p2 = new Promise(resolve => setTimeout(resolve, 1000));
                     await Promise.race([p1, p2]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1422,7 +1423,7 @@ describe('stderr', () => {
                     const p1 = Promise.reject(null);
                     const p2 = new Promise(resolve => setTimeout(resolve, 1000));
                     await Promise.race([p1, p2]);
-                    fail('Should have thrown an error');
+                    expect.fail('Should have thrown an error');
                 } catch (e) {
                     const normalized = stderr(e);
 
@@ -1543,12 +1544,10 @@ describe('idempotency / internal state never leaks', () => {
         expect(uninitialized.toJSON()).toMatchObject({ name: 'X', message: 'y' });
     });
 
-    it('a StdError from a SECOND module copy does not leak through this copy (dual-package)', () => {
-        let CopyB!: typeof import('../src/StdError');
-        jest.isolateModules(() => {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports -- isolateModules is require-only by design
-            CopyB = require('../src/StdError');
-        });
+    it('a StdError from a SECOND module copy does not leak through this copy (dual-package)', async () => {
+        // Clearing the registry makes the dynamic import evaluate a fresh copy of the module.
+        vi.resetModules();
+        const CopyB = await import('../src/StdError');
         expect(CopyB.StdError).not.toBe(StdError);
 
         const inner = new CopyB.StdError('inner', { maxDepth: 4 });

@@ -1,4 +1,5 @@
 // test/tryCatch.fuzz.test.ts
+import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { tryCatch } from '../src';
 import { StdError } from '../src/StdError';

@@ -8,7 +8,7 @@ import prettierConfig from 'eslint-config-prettier';
 /** @type {import('eslint').Linter.Config} */
 export default [
     {
-        ignores: ['dist/**', 'coverage/**', 'node_modules/**', '*.config.js', '*.config.mjs', 'jest.config.ts'],
+        ignores: ['dist/**', 'coverage/**', 'node_modules/**', '*.config.js', '*.config.mjs'],
     },
     { files: ['**/*.{js,mjs,cjs,ts}'] },
     { languageOptions: { globals: globals.browser } },

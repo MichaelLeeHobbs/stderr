@@ -1,4 +1,5 @@
 // test/maxDepth-behavior.test.ts
+import { describe, expect, it } from 'vitest';
 import { StdError } from '../src/StdError';
 
 /**

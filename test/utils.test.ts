@@ -1,4 +1,5 @@
 // src/utils.test.ts
+import { describe, expect, it } from 'vitest';
 import { unknownToString, primitiveToError, copyPropertiesTo, STANDARD_ERROR_KEYS } from '../src/utils';
 import { LEGACY_LEAK_KEYS } from '../src/constants';
 
@@ -389,7 +390,7 @@ describe('copyPropertiesTo', () => {
             expect(target.thrower).toBeUndefined();
         });
 
-        it.each([RangeError, ReferenceError, TypeError])('skips a property whose getter throws %p', ErrorType => {
+        it.each([RangeError, ReferenceError, TypeError])('skips a property whose getter throws %o', ErrorType => {
             // A throwing getter is the SOURCE object's problem, whatever error type it throws:
             // it must not abort normalization (review finding #2).
             const source: Record<string, unknown> = { normal: 'value' };
