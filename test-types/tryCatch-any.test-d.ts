@@ -19,3 +19,9 @@ expectType<Result<number, StdError>>(tryCatch(() => 42));
 expectType<Promise<Result<any, StdError>>>(tryCatch(async () => JSON.parse(text)));
 expectType<Result<number, StdError>>(tryCatch<number>(() => 42));
 expectType<Promise<Result<number, StdError>>>(tryCatch<number>(async () => 42));
+
+// Promises of any stay async
+declare const anyPromise: Promise<any>;
+expectType<Promise<Result<any, StdError>>>(tryCatch(anyPromise));
+declare const asyncAnyFn: () => Promise<any>;
+expectType<Promise<Result<any, StdError>>>(tryCatch(asyncAnyFn));

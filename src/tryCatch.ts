@@ -71,6 +71,11 @@ type TryCatchReturn<T, E> = [T] extends [never] ? Result<T, E> : T extends Promi
  * );
  */
 
+// Overload 0: Handle functions returning `any` (JSON.parse, untyped libraries)
+// Without it `() => any` matches the async overload 3, typing a sync call as Promise<Result> | Result.
+// `0 extends 1 & T` is true only for `any`; for any other T the parameter is `never` and the overload is skipped.
+export function tryCatch<T, E = StdError>(fn: 0 extends 1 & T ? () => T : never, mapError?: (normalizedError: StdError) => E): Result<T, E>;
+
 // Overload 1: Handle sync functions that never return (always throw)
 // Must come before async overload because `never` is assignable to `Promise<T>`
 // Uses `T` parameter for compatibility when caller specifies two type parameters

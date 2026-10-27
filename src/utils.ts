@@ -44,19 +44,69 @@ export function safeGet(source: unknown, key: string | symbol): unknown {
     }
 }
 
+const MAX_MARKER_SUFFIX = 100;
+
+/**
+ * Returns `key`, or the first `${key}_N` (N >= 2) that is not yet an own property of target.
+ */
+export function freeKey(target: object, key: string): string {
+    let freeKey = key;
+    for (let n = 2; Object.prototype.hasOwnProperty.call(target, freeKey) && n <= MAX_MARKER_SUFFIX; n++) {
+        freeKey = `${key}_${n}`;
+    }
+    return freeKey;
+}
+
 /**
  * Writes a library marker (e.g. `_truncated`) without overwriting user data.
  * If the key is already taken, the first free `${key}_N` (N >= 2) is used instead.
  */
 export function addMarker(target: Record<string | symbol, unknown>, key: string, message: string): void {
-    let markerKey = key;
-    for (let n = 2; Object.prototype.hasOwnProperty.call(target, markerKey) && n <= MAX_MARKER_SUFFIX; n++) {
-        markerKey = `${key}_${n}`;
-    }
-    target[markerKey] = message;
+    target[freeKey(target, key)] = message;
 }
 
-const MAX_MARKER_SUFFIX = 100;
+/** Keys written by addMarker (`_truncated`, `_truncated_2`, `_truncated_items`, ...). */
+export const isMarkerKey = (key: string | symbol): boolean => typeof key === 'string' && (key === '_truncated' || key.startsWith('_truncated_'));
+
+/**
+ * Applies a maxProperties limit to a key list.
+ *
+ * Truncation markers left by an earlier pass are carried through and do not count towards the limit,
+ * so re-normalizing or serializing an already truncated error does not truncate (or re-mark) it again.
+ * Returns the keys to process and, when keys were dropped, the `_truncated` message to add.
+ */
+export function boundKeys<K extends string | symbol>(keys: K[], limit: number): { keys: K[]; truncated?: string } {
+    const data = keys.filter(k => !isMarkerKey(k));
+    const markers = keys.length - data.length;
+    // Markers get their own allowance (also `limit`) so they cannot be used to bypass the limit
+    if (data.length <= limit && markers <= limit) return { keys };
+    const kept = new Set<K>([...data.slice(0, limit), ...keys.filter(isMarkerKey).slice(0, limit)]);
+    const count = markers > limit ? keys.length : data.length;
+    return {
+        keys: keys.filter(k => kept.has(k)),
+        truncated: `Property count (${count}) exceeds limit (${limit}), showing first ${limit}`,
+    };
+}
+
+/** Validates a numeric limit option. undefined means "not set". */
+export function validateLimit(name: string, value: number | undefined, min: number, max: number): void {
+    if (value === undefined) return;
+    if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value === 'number' ? value : typeof value}`);
+    if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
+}
+
+/** Valid ranges for the three limits, shared by stderr() and StdError. */
+export const LIMIT_RANGES = {
+    maxDepth: [1, 1000],
+    maxProperties: [1, 100000],
+    maxArrayLength: [1, 1000000],
+} as const;
+
+export function validateLimits(limits: { maxDepth?: number; maxProperties?: number; maxArrayLength?: number }): void {
+    validateLimit('maxDepth', limits.maxDepth, ...LIMIT_RANGES.maxDepth);
+    validateLimit('maxProperties', limits.maxProperties, ...LIMIT_RANGES.maxProperties);
+    validateLimit('maxArrayLength', limits.maxArrayLength, ...LIMIT_RANGES.maxArrayLength);
+}
 
 /**
  * Copies properties from source to target with filtering and optional normalization.
@@ -67,15 +117,11 @@ const MAX_MARKER_SUFFIX = 100;
 export function copyPropertiesTo(source: object, target: Record<string | symbol, unknown>, options: CopyPropertiesOptions = {}): void {
     const { excludeKeys = DEFAULT_EXCLUDE_KEYS, skipFunctions = true, convertSymbolKeys = false, normalizeValue, maxProperties, maxArrayLength } = options;
 
-    const keys = getCustomKeys(source, { includeNonEnumerable: true, excludeKeys });
-    const limit = maxProperties !== undefined ? maxProperties : keys.length;
+    const allKeys = getCustomKeys(source, { includeNonEnumerable: true, excludeKeys });
+    const { keys: boundedKeys, truncated } = maxProperties !== undefined ? boundKeys(allKeys, maxProperties) : { keys: allKeys, truncated: undefined };
     const markers: [string, string][] = [];
 
-    if (keys.length > limit) {
-        markers.push(['_truncated', `Property count (${keys.length}) exceeds limit (${limit}), showing first ${limit}`]);
-    }
-
-    const boundedKeys = keys.slice(0, limit);
+    if (truncated) markers.push(['_truncated', truncated]);
 
     for (const key of boundedKeys) {
         let value: unknown;
@@ -98,8 +144,10 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
             value = value.toString();
         }
 
-        const targetKey = convertSymbolKeys && isSymbol(key) ? key.toString() : key;
-        if (value !== undefined) target[targetKey] = value;
+        if (value === undefined) continue;
+        // Distinct symbols can share a description (Symbol('id') twice): keep both instead of overwriting
+        const targetKey = convertSymbolKeys && isSymbol(key) ? freeKey(target, key.toString()) : key;
+        target[targetKey] = value;
     }
 
     // Markers go last so they never overwrite (or get overwritten by) a user property of the same name

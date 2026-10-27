@@ -800,11 +800,8 @@ describe('StdError', () => {
         });
 
         describe('toJSON edge cases (lines 372-373, 390-391, 470-474, 478-481)', () => {
-            it('toJSON wraps string result from serializeError', () => {
-                const error = new StdError('Test', { maxDepth: 0 });
-                const json = error.toJSON();
-                expect(json).toHaveProperty('name');
-                expect(json).toHaveProperty('message');
+            it('rejects maxDepth: 0, which would make toJSON() drop the whole error', () => {
+                expect(() => new StdError('Test', { maxDepth: 0 })).toThrow(RangeError);
             });
 
             it('serializeValue handles symbols', () => {

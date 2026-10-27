@@ -147,9 +147,9 @@ describe('stderr() robustness', () => {
 });
 
 describe('StdError toString()/toJSON() robustness', () => {
-    it('formats a root at depth limit 0', () => {
-        const e = new StdError('x', { maxDepth: 0 });
-        expect(e.toString()).toBe('[Max depth of 0 reached]');
+    it('formats a root at depth limit 1 without its cause', () => {
+        const e = new StdError('x', { maxDepth: 1, cause: new Error('y') });
+        expect(e.toString()).toContain('[cause]: [Max depth of 1 reached]');
     });
 
     it('marks an error that lists itself in errors as [Circular]', () => {
@@ -212,14 +212,14 @@ describe('StdError toString()/toJSON() robustness', () => {
     });
 
     it('honors per-instance maxProperties and maxArrayLength in toJSON()', () => {
-        const e = new StdError('x', { maxProperties: 2, maxArrayLength: 2 });
-        e.obj = { a: 1, b: 2, c: 3 };
+        const e = new StdError('x', { maxProperties: 3, maxArrayLength: 2 });
+        e.obj = { a: 1, b: 2, c: 3, d: 4 };
         e.arr = [1, 2, 3];
         e.set = new Set([1, 2, 3]);
         e.errors = [new Error('1'), new Error('2'), new Error('3')];
 
         const json = e.toJSON();
-        expect(json.obj).toEqual({ a: 1, b: 2 });
+        expect(json.obj).toEqual({ a: 1, b: 2, c: 3, _truncated: 'Property count (4) exceeds limit (3), showing first 3' });
         expect(json.arr).toEqual([1, 2]);
         expect(json.set).toEqual([1, 2]);
         expect(json.errors).toHaveLength(2);

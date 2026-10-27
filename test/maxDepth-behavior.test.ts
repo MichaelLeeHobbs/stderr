@@ -328,14 +328,8 @@ describe('maxDepth behavior (exclusive)', () => {
     });
 
     describe('edge cases', () => {
-        it('maxDepth: 0 shows nothing (invalid but handled)', () => {
-            const error = new StdError('Root', { maxDepth: 0 });
-            const str = error.toString();
-
-            // depth 0 > maxDepth 0 is false, so root shows
-            // Actually depth > 0 would trigger, so this might show root
-            // Let's test actual behavior
-            expect(str).toBeDefined();
+        it('maxDepth: 0 is rejected, as it is by stderr()', () => {
+            expect(() => new StdError('Root', { maxDepth: 0 })).toThrow(RangeError);
         });
 
         it('very deep nesting with default maxDepth (8)', () => {

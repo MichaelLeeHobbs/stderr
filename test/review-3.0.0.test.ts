@@ -115,3 +115,111 @@ describe('pre-3.0.0 review', () => {
         });
     });
 });
+
+describe('pre-3.0.0 review: edge cases of the fixes', () => {
+    it('B1 still defaults name and message to AggregateError when the input has neither', () => {
+        const e = stderr({ errors: new Error('inner') });
+        expect(e.name).toBe('AggregateError');
+        expect(e.message).toBe('AggregateError');
+    });
+
+    it('B1 treats a real Error with name and message in errors as a single error', () => {
+        const e = stderr({ message: 'outer', errors: { name: 'TypeError', message: 'bad' } });
+        expect((e.errors as StdError[])[0].message).toBe('bad');
+    });
+
+    it('B4 adds a _truncated line to toString()', () => {
+        const e = new StdError('x', { maxProperties: 1 });
+        e.a = 1;
+        e.b = 2;
+        expect(e.toString()).toContain("_truncated: 'Property count (2) exceeds limit (1), showing first 1'");
+        expect(e.toString()).not.toContain('b: 2');
+    });
+
+    it('B4 bounds string and symbol keys of a plain object together', () => {
+        const e = new StdError('x', { maxProperties: 2, obj: { a: 1, [Symbol('s')]: 2, c: 3 } });
+        expect(e.toJSON().obj).toEqual({ a: 1, c: 3, _truncated: 'Property count (3) exceeds limit (2), showing first 2' });
+    });
+
+    it('B5 validates all StdError limits and defaults', () => {
+        expect(() => new StdError('x', { maxProperties: 0 })).toThrow(RangeError);
+        expect(() => new StdError('x', { maxArrayLength: 1.5 })).toThrow(TypeError);
+        const prev = [StdError.defaultMaxProperties, StdError.defaultMaxArrayLength];
+        try {
+            expect(() => {
+                StdError.defaultMaxProperties = 0;
+            }).toThrow(RangeError);
+            expect(() => {
+                StdError.defaultMaxArrayLength = NaN;
+            }).toThrow(TypeError);
+            StdError.defaultMaxProperties = 5;
+            StdError.defaultMaxArrayLength = 6;
+            expect([StdError.defaultMaxProperties, StdError.defaultMaxArrayLength]).toEqual([5, 6]);
+        } finally {
+            [StdError.defaultMaxProperties, StdError.defaultMaxArrayLength] = prev;
+        }
+    });
+
+    it('B6 gives a root without a stack the stack of the stderr() caller', () => {
+        const fromString = stderr('oops');
+        const fromObject = stderr({ message: 'oops' });
+        for (const e of [fromString, fromObject]) {
+            expect(e.stack).toMatch(/review-3\.0\.0\.test\.ts/);
+            expect(e.stack).not.toMatch(/primitiveToError|normalizeObjectToError/);
+        }
+    });
+
+    it('B6 keeps the original stack of a cause', () => {
+        const inner = new Error('inner');
+        expect((stderr({ message: 'x', cause: inner }).cause as StdError).stack).toBe(inner.stack);
+    });
+
+    it('B7 turns an array cause into an AggregateError', () => {
+        const cause = stderr({ message: 'x', cause: ['a', new Error('b')] }).cause as StdError;
+        expect(cause.name).toBe('AggregateError');
+        expect((cause.errors as StdError[]).map(e => e.message)).toEqual(['a', 'b']);
+    });
+
+    it('B7 shows an invalid Date cause as Invalid Date', () => {
+        expect((stderr({ message: 'x', cause: new Date(NaN) }).cause as StdError).message).toBe('Invalid Date');
+    });
+
+    it('B7 bounds a Map of errors by maxProperties and keeps colliding keys apart', () => {
+        const errors = new Map<unknown, unknown>([
+            [{}, 'first'],
+            [{}, 'second'],
+            ['c', 'third'],
+        ]);
+        const e = stderr({ message: 'x', errors }, { maxProperties: 2 });
+        const map = e.errors as Record<string, StdError | string>;
+        expect((map['[object Object]'] as StdError).message).toBe('first');
+        expect((map['[object Object]_2'] as StdError).message).toBe('second');
+        expect(map._truncated).toBe('Property count (3) exceeds limit (2), showing first 2');
+    });
+
+    it('B7 bounds a Set of errors by maxArrayLength', () => {
+        const e = stderr({ message: 'x', errors: new Set(['a', 'b', 'c']) }, { maxArrayLength: 2 });
+        expect(e.errors).toHaveLength(2);
+        expect(e._truncated).toBe('Array length (3) exceeds limit (2), showing first 2');
+    });
+
+    it('B8 serializes a non-string name and drops a non-string stack', () => {
+        const json = new StdError('x', { cause: { name: 42, message: 'm', stack: 7 } }).toJSON() as { cause: Record<string, unknown> };
+        expect(json.cause.name).toBe('42');
+        expect(json.cause).not.toHaveProperty('stack');
+    });
+
+    it('B9 is idempotent for a truncated errors map', () => {
+        const errors: Record<string, string> = { a: '1', b: '2', c: '3' };
+        const once = stderr({ message: 'x', errors }, { maxProperties: 2 });
+        expect(noStack(stderr(once, { maxProperties: 2 }))).toEqual(noStack(once));
+    });
+
+    it('B9 does not let truncation markers bypass maxProperties', () => {
+        const input: Record<string, unknown> = { message: 'x' };
+        for (let i = 0; i < 10; i++) input[`_truncated_${i}`] = 'fake';
+        const e = stderr(input, { maxProperties: 2 });
+        expect(Object.keys(e).filter(k => k.startsWith('_truncated_')).length).toBeLessThanOrEqual(3);
+        expect(e._truncated).toBe('Property count (10) exceeds limit (2), showing first 2');
+    });
+});

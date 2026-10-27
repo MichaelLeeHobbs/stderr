@@ -1,7 +1,21 @@
 // src/StdError.ts
 
-import { ErrorRecord, ErrorShape, isArray, isErrorLike, isErrorShaped, isInstanceOf, isObject, isPrimitive, isSymbol } from './types';
-import { checkDepthLimit, getCustomKeys, unknownToString, buildExcludeKeys, copyPropertiesTo, safeGet, VisitTracker } from './utils';
+import { ErrorRecord, ErrorShape, isArray, isErrorLike, isErrorShaped, isInstanceOf, isObject, isPrimitive, isString, isSymbol } from './types';
+import {
+    addMarker,
+    boundKeys,
+    buildExcludeKeys,
+    checkDepthLimit,
+    copyPropertiesTo,
+    freeKey,
+    getCustomKeys,
+    LIMIT_RANGES,
+    safeGet,
+    unknownToString,
+    validateLimit,
+    validateLimits,
+    VisitTracker,
+} from './utils';
 import { MAX_DEPTH, MAX_ARRAY_LENGTH, MAX_PROPERTIES, MAX_INLINE_ITEMS } from './constants';
 
 interface InstanceLimits {
@@ -19,6 +33,11 @@ interface InstanceLimits {
  * by construction. A Symbol is a collision-avoidance device, not a privacy device — see ADR-007.
  */
 const limitsRegistry = new WeakMap<StdError, InstanceLimits>();
+
+// Backing values for the validated StdError.default* accessors
+let defaultMaxDepth = MAX_DEPTH;
+let defaultMaxProperties = MAX_PROPERTIES;
+let defaultMaxArrayLength = MAX_ARRAY_LENGTH;
 
 /** State for one toString()/toJSON() walk. */
 interface WalkContext {
@@ -74,22 +93,43 @@ export class StdError extends Error implements ErrorShape {
     [key: symbol]: unknown;
 
     /**
-     * Global default maximum depth for recursive operations
-     * Can be overridden per instance
+     * Global default maximum depth for recursive operations (integer, 1-1000).
+     * Can be overridden per instance. Invalid values throw TypeError/RangeError, as for `stderr.maxDepth`.
      */
-    static defaultMaxDepth: number = MAX_DEPTH;
+    static get defaultMaxDepth(): number {
+        return defaultMaxDepth;
+    }
+
+    static set defaultMaxDepth(value: number) {
+        validateLimit('maxDepth', value, ...LIMIT_RANGES.maxDepth);
+        defaultMaxDepth = value;
+    }
 
     /**
-     * Global default maximum number of properties serialized per object by toJSON()
-     * Can be overridden per instance
+     * Global default maximum number of properties per object serialized by toJSON()/toString() (integer, 1-100000).
+     * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
-    static defaultMaxProperties: number = MAX_PROPERTIES;
+    static get defaultMaxProperties(): number {
+        return defaultMaxProperties;
+    }
+
+    static set defaultMaxProperties(value: number) {
+        validateLimit('maxProperties', value, ...LIMIT_RANGES.maxProperties);
+        defaultMaxProperties = value;
+    }
 
     /**
-     * Global default maximum array length serialized by toJSON()
-     * Can be overridden per instance
+     * Global default maximum array length serialized by toJSON()/toString() (integer, 1-1000000).
+     * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
-    static defaultMaxArrayLength: number = MAX_ARRAY_LENGTH;
+    static get defaultMaxArrayLength(): number {
+        return defaultMaxArrayLength;
+    }
+
+    static set defaultMaxArrayLength(value: number) {
+        validateLimit('maxArrayLength', value, ...LIMIT_RANGES.maxArrayLength);
+        defaultMaxArrayLength = value;
+    }
 
     /**
      * Creates a new StdError instance
@@ -103,6 +143,7 @@ export class StdError extends Error implements ErrorShape {
      * @param options.maxProperties - Maximum properties to copy/serialize for this instance
      * @param options.maxArrayLength - Maximum array length to copy/serialize for this instance
      * @param options.[key] - Any additional custom properties
+     * @throws TypeError/RangeError if a limit is not an integer in its valid range (same ranges as stderr())
      *
      * @example
      * ```typescript
@@ -119,6 +160,9 @@ export class StdError extends Error implements ErrorShape {
         message?: string,
         options?: { cause?: unknown; errors?: unknown; name?: string; maxDepth?: number; maxProperties?: number; maxArrayLength?: number } & ErrorRecord
     ) {
+        // Validate before anything else: an invalid limit would silently break toJSON()/toString()
+        if (options) validateLimits(options);
+
         super(message);
 
         // Set name
@@ -200,12 +244,8 @@ export class StdError extends Error implements ErrorShape {
      * ```
      */
     toJSON(): ErrorShape {
-        const result = serializeError(this, 0, createWalkContext(this));
-        // If serializeError returns a string (maxDepth or circular), wrap it
-        if (typeof result === 'string') {
-            return { name: 'Error', message: result } as ErrorShape;
-        }
-        return result as ErrorShape;
+        // Always an object: the root is walked at depth 0 with a fresh tracker, and maxDepth is validated to be >= 1
+        return serializeError(this, 0, createWalkContext(this)) as ErrorShape;
     }
 }
 
@@ -228,6 +268,16 @@ const createWalkContext = (error: StdError): WalkContext => {
 const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
 
 /**
+ * Reads `name`/`message` as a string. Errors not built by stderr() can hold anything there
+ * (a bigint, an object); it must not reach the output raw.
+ */
+const textField = (error: object, key: 'name' | 'message', fallback: string): string => {
+    const value = safeGet(error, key);
+    if (value === undefined || value === null || value === '') return fallback;
+    return isString(value) ? value : unknownToString(value);
+};
+
+/**
  * Formats an error for string display with proper indentation.
  * The first line is never indented: callers always place it after a label (`[cause]: `, `[0]: `).
  */
@@ -244,8 +294,8 @@ const formatError = (error: ErrorShape, depth: number, ctx: WalkContext): string
         const lines: string[] = [];
 
         // First line: name and message
-        const name = (safeGet(error, 'name') as string) || 'Error';
-        const message = (safeGet(error, 'message') as string) || '';
+        const name = textField(error, 'name', 'Error');
+        const message = textField(error, 'message', '');
         lines.push(message ? `${name}: ${message}` : name);
 
         // Stack trace (only first few lines to keep it readable)
@@ -256,10 +306,12 @@ const formatError = (error: ErrorShape, depth: number, ctx: WalkContext): string
         }
 
         // Custom properties
-        for (const key of getCustomKeys(error)) {
+        const { keys, truncated } = boundKeys(getCustomKeys(error), ctx.maxProperties);
+        for (const key of keys) {
             const formattedValue = formatValue(safeGet(error, key), depth + 1, ctx);
             lines.push(`${indent}  ${String(key)}: ${formattedValue}`);
         }
+        if (truncated) lines.push(`${indent}  _truncated: '${truncated}'`);
 
         // Cause chain
         const cause = safeGet(error, 'cause');
@@ -385,14 +437,14 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
 
     try {
         const result: ErrorShape = {
-            name: (safeGet(error, 'name') as string) || 'Error',
-            message: (safeGet(error, 'message') as string) || '',
+            name: textField(error, 'name', 'Error'),
+            message: textField(error, 'message', ''),
         };
 
-        // Include stack if present
+        // Include stack if present (only a string: anything else could be circular or a bigint)
         const stack = safeGet(error, 'stack');
-        if (stack !== undefined) {
-            result.stack = stack as string;
+        if (isString(stack)) {
+            result.stack = stack;
         }
 
         // Serialize cause
@@ -412,9 +464,11 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
         }
 
         // Serialize custom properties
-        for (const key of getCustomKeys(error)) {
+        const { keys, truncated } = boundKeys(getCustomKeys(error), ctx.maxProperties);
+        for (const key of keys) {
             const value = safeGet(error, key);
-            const serializedKey = isSymbol(key) ? key.toString() : String(key);
+            // Distinct symbols can share a description: keep both instead of overwriting
+            const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : String(key);
             if (isArray(value)) {
                 // Do not increase depth here as we are already increasing it for the array
                 result[serializedKey] = serializeArray(value, depth, ctx, false);
@@ -422,6 +476,7 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
             }
             result[serializedKey] = serializeValue(value, depth + 1, ctx, false);
         }
+        if (truncated) addMarker(result, '_truncated', truncated);
 
         return result;
     } finally {
@@ -486,19 +541,15 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
                 .map(v => serializeValue(v, depth + 1, ctx, false));
         }
 
-        // Plain objects
+        // Plain objects: enumerable string and symbol keys, bounded together
         const result: ErrorRecord = {};
+        const { keys, truncated } = boundKeys(getCustomKeys(value, { excludeKeys: new Set() }), ctx.maxProperties);
 
-        for (const key of Object.keys(value).slice(0, ctx.maxProperties)) {
-            result[key] = serializeValue(safeGet(value, key), depth + 1, ctx, false);
+        for (const key of keys) {
+            const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : key;
+            result[serializedKey] = serializeValue(safeGet(value, key), depth + 1, ctx, false);
         }
-
-        // Handle enumerable symbol keys
-        for (const sym of Object.getOwnPropertySymbols(value).slice(0, ctx.maxProperties)) {
-            if (Object.prototype.propertyIsEnumerable.call(value, sym)) {
-                result[sym.toString()] = serializeValue(safeGet(value, sym), depth + 1, ctx, false);
-            }
-        }
+        if (truncated) addMarker(result, '_truncated', truncated);
 
         return result;
     } finally {

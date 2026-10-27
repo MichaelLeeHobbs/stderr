@@ -41,7 +41,7 @@ export const MAX_INLINE_ITEMS = 3;
  * whose distinct Symbol() stringifies to the identical text.
  *
  * ACCEPTED TRADE-OFF: a user property literally named "Symbol(stderr_maxDepth)" is dropped.
- * This is not an Error key and not a filter for current internal state — StdError 2.3+ has
+ * This is not an Error key and not a filter for current internal state — StdError 3.0+ has
  * no internal own property to filter (ADR-007). This list is a LEGACY QUARANTINE and may be
  * deleted once v<=2.2.0 errors have aged out of log stores.
  */
