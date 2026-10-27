@@ -1,15 +1,14 @@
 // test-types/public-api.test-d.ts
 // Type-level tests for the public API, checked by `pnpm run typecheck:test-types` (tsc).
 //
-// These use vitest's expectTypeOf, which compares types exactly under plain tsc. tsd's expectType/expectError (used in
-// result.test-d.ts) only work under the tsd CLI: under tsc, expectType<T>(v) is an assignability check and
-// expectError/expectNotAssignable check nothing.
+// Type tests use vitest's expectTypeOf, which compares types exactly under plain tsc, and `// @ts-expect-error` for
+// code that must not compile (tsc fails on an unused directive). Not tsd: its expectType/expectError only work under
+// the tsd CLI; under tsc, expectType<T>(v) is an assignability check and expectError/expectNotAssignable check nothing.
 //
 // `// @ts-expect-error KNOWN BUG` marks a line that is wrong today. When the bug is fixed the directive becomes unused,
 // tsc fails, and the line should be turned into a plain assertion.
 /* eslint-disable @typescript-eslint/no-explicit-any -- `any` is one of the subjects of these tests */
 import { expectTypeOf } from 'vitest';
-import { expectType } from 'tsd';
 import type { ErrorRecord, ErrorShape, NormalizeOptions, Result, StdErrorShape } from '../src';
 import { stderr, StdError, tryCatch } from '../src';
 
@@ -145,12 +144,11 @@ expectTypeOf(tryCatch(anyFn)).toEqualTypeOf<Result<any>>();
 expectTypeOf(tryCatch(() => JSON.parse('1'))).toEqualTypeOf<Result<any>>();
 expectTypeOf(tryCatch(async () => JSON.parse('1'))).toEqualTypeOf<Promise<Result<any>>>();
 
-// KNOWN BUG T2: a function returning a thenable that is not a Promise (PromiseLike, a query builder) resolves at runtime
-// (tryCatch checks for `.then`), so the call returns Promise<Result<number>>. The type says Result<PromiseLike<number>>.
+// A function returning a thenable that is not a Promise (PromiseLike, a query builder) is awaited too (T2)
 declare const thenable: PromiseLike<number>;
-// @ts-expect-error KNOWN BUG T2
 expectTypeOf(tryCatch(() => thenable)).toEqualTypeOf<Promise<Result<number>>>();
-expectTypeOf(tryCatch(() => thenable)).toEqualTypeOf<Result<PromiseLike<number>>>(); // what it is today
+expectTypeOf(tryCatch(thenable)).toEqualTypeOf<Promise<Result<number>>>();
+expectTypeOf(tryCatch(() => thenable, toCustom)).toEqualTypeOf<Promise<Result<number, Custom>>>();
 
 // Invalid calls
 // @ts-expect-error not a function or Promise
@@ -160,9 +158,3 @@ tryCatch((a: number) => a);
 const numberMapper = (err: number) => err;
 // @ts-expect-error mapError receives a StdError
 tryCatch(() => 1, numberMapper);
-
-// ============================================================================
-// Why expectTypeOf and not tsd here: under tsc, tsd's expectType is only an assignability check,
-// so this incorrect assertion (the result is Result<number>) compiles.
-// ============================================================================
-expectType<Result<number | string>>(tryCatch(() => 42));

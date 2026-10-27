@@ -1,6 +1,5 @@
 // test-types/result.test-d.ts
-import { describe } from 'vitest';
-import { expectAssignable, expectError, expectNotAssignable, expectType } from 'tsd';
+import { describe, expectTypeOf } from 'vitest';
 import type { Result } from '../src';
 import { StdError, tryCatch } from '../src';
 
@@ -11,7 +10,7 @@ import { StdError, tryCatch } from '../src';
 describe('Result type structure', () => {
     // Sync functions return Result<T, E>
     const syncResult = tryCatch(() => 42);
-    expectType<Result<number, StdError>>(syncResult);
+    expectTypeOf(syncResult).toEqualTypeOf<Result<number, StdError>>();
 });
 
 // ============================================================================
@@ -22,11 +21,11 @@ describe('Async Result types', () => {
     // Async functions - T is inferred as Promise<string>
     // The current type definition wraps the Promise inside the Result
     const asyncResult = tryCatch(async () => 'test');
-    expectType<Promise<Result<string, StdError>>>(asyncResult);
+    expectTypeOf(asyncResult).toEqualTypeOf<Promise<Result<string, StdError>>>();
 
     // Promise.resolve wrapped functions
     const promiseResult = tryCatch(() => Promise.resolve(123));
-    expectType<Promise<Result<number, StdError>>>(promiseResult);
+    expectTypeOf(promiseResult).toEqualTypeOf<Promise<Result<number, StdError>>>();
 });
 
 // ============================================================================
@@ -43,7 +42,7 @@ describe('mapError type transformation', () => {
         },
         (err): CustomError => ({ code: err.name || 'UNKNOWN', msg: err.message || '' })
     );
-    expectType<Result<never, CustomError>>(customResult);
+    expectTypeOf(customResult).toEqualTypeOf<Result<never, CustomError>>();
 
     // Async with custom error type
     // T is Promise<never>, Error is CustomError
@@ -53,7 +52,7 @@ describe('mapError type transformation', () => {
         },
         (err): CustomError => ({ code: err.name || '', msg: err.message || '' })
     );
-    expectType<Promise<Result<never, CustomError>>>(asyncCustom);
+    expectTypeOf(asyncCustom).toEqualTypeOf<Promise<Result<never, CustomError>>>();
 });
 
 // ============================================================================
@@ -64,17 +63,17 @@ describe('Promise vs sync detection', () => {
     // Sync function
     const syncFn = () => 42;
     const syncRes = tryCatch(syncFn);
-    expectType<Result<number, StdError>>(syncRes);
+    expectTypeOf(syncRes).toEqualTypeOf<Result<number, StdError>>();
 
     // Async function
     const asyncFn = async () => 42;
     const asyncRes = tryCatch(asyncFn);
-    expectType<Promise<Result<number, StdError>>>(asyncRes);
+    expectTypeOf(asyncRes).toEqualTypeOf<Promise<Result<number, StdError>>>();
 
     // Function returning Promise
     const promiseFn = () => Promise.resolve(42);
     const promiseRes = tryCatch(promiseFn);
-    expectType<Promise<Result<number, StdError>>>(promiseRes);
+    expectTypeOf(promiseRes).toEqualTypeOf<Promise<Result<number, StdError>>>();
 });
 
 // ============================================================================
@@ -84,18 +83,17 @@ describe('Promise vs sync detection', () => {
 describe('Generic type inference', () => {
     // Infers return type from function
     const stringResult = tryCatch(() => 'hello');
-    expectType<Result<string, StdError>>(stringResult);
+    expectTypeOf(stringResult).toEqualTypeOf<Result<string, StdError>>();
 
     const numberResult = tryCatch(() => 123);
-    expectType<Result<number, StdError>>(numberResult);
+    expectTypeOf(numberResult).toEqualTypeOf<Result<number, StdError>>();
 
     // Async object result
     const objectResult = tryCatch(async () => ({ key: 'value' }));
-    expectType<Promise<Result<{ key: string }, StdError>>>(objectResult);
+    expectTypeOf(objectResult).toEqualTypeOf<Promise<Result<{ key: string }, StdError>>>();
 
-    // Explicit type parameter only works with mapError
-    // Without mapError, you can't specify custom error type
-    expectError(tryCatch<number, StdError>(() => 42));
+    // Both type parameters can be given without mapError (this was asserted as an error, but tsc never checked it)
+    expectTypeOf(tryCatch<number, StdError>(() => 42)).toEqualTypeOf<Result<number, StdError>>();
 });
 
 // ============================================================================
@@ -107,21 +105,21 @@ describe('Edge case types', () => {
     const voidResult = tryCatch(() => {
         console.log('side effect');
     });
-    expectType<Result<void, StdError>>(voidResult);
+    expectTypeOf(voidResult).toEqualTypeOf<Result<void, StdError>>();
 
     // undefined return
     const undefinedResult = tryCatch(() => undefined);
-    expectType<Result<undefined, StdError>>(undefinedResult);
+    expectTypeOf(undefinedResult).toEqualTypeOf<Result<undefined, StdError>>();
 
     // null return
     const nullResult = tryCatch(() => null);
-    expectType<Result<null, StdError>>(nullResult);
+    expectTypeOf(nullResult).toEqualTypeOf<Result<null, StdError>>();
 
     // never type (always throws)
     const neverResult = tryCatch((): never => {
         throw new Error('always fails');
     });
-    expectType<Result<unknown, StdError>>(neverResult);
+    expectTypeOf(neverResult).toEqualTypeOf<Result<never, StdError>>();
 });
 
 // ============================================================================
@@ -131,19 +129,19 @@ describe('Edge case types', () => {
 describe('Result type compatibility', () => {
     // Success Result is assignable
     const success: Result<number, StdError> = { ok: true, value: 42, error: null };
-    expectAssignable<Result<number, StdError>>(success);
+    expectTypeOf(success).toExtend<Result<number, StdError>>();
 
     // Failure Result is assignable
     const failure: Result<number, StdError> = { ok: false, value: null, error: new StdError('fail') };
-    expectAssignable<Result<number, StdError>>(failure);
+    expectTypeOf(failure).toExtend<Result<number, StdError>>();
 
     // Partial Results are not assignable
     const partial = { ok: true, value: 42 };
-    expectNotAssignable<Result<number, StdError>>(partial);
+    expectTypeOf(partial).not.toExtend<Result<number, StdError>>();
 
     // Wrong value type not assignable
     const wrongValue = { ok: true, value: 'string', error: null };
-    expectNotAssignable<Result<number, StdError>>(wrongValue);
+    expectTypeOf(wrongValue).not.toExtend<Result<number, StdError>>();
 });
 
 // ============================================================================
@@ -173,7 +171,7 @@ describe('Method return type assignment - async function inference', () => {
     const asyncUploadResult = tryCatch(async () => {
         return { key: 'k', url: 'u', size: 1 };
     });
-    expectType<Promise<Result<{ key: string; url: string; size: number }, StdError>>>(asyncUploadResult);
+    expectTypeOf(asyncUploadResult).toEqualTypeOf<Promise<Result<{ key: string; url: string; size: number }, StdError>>>();
 
     // With explicit generic should also work (current workaround)
     // Note: When using explicit generic with async, you must specify the unwrapped type
@@ -181,11 +179,11 @@ describe('Method return type assignment - async function inference', () => {
     const explicitResult = tryCatch<Promise<{ key: string }>>(async () => {
         return { key: 'test' };
     });
-    expectType<Promise<Result<{ key: string }, StdError>>>(explicitResult);
+    expectTypeOf(explicitResult).toEqualTypeOf<Promise<Result<{ key: string }, StdError>>>();
 
     // Async arrow function returning object
     const arrowAsyncResult = tryCatch(async () => ({ id: 1, name: 'test' }));
-    expectType<Promise<Result<{ id: number; name: string }, StdError>>>(arrowAsyncResult);
+    expectTypeOf(arrowAsyncResult).toEqualTypeOf<Promise<Result<{ id: number; name: string }, StdError>>>();
 });
 
 // ============================================================================
@@ -199,35 +197,35 @@ describe('Proper usage patterns with await', () => {
     // Test async function
     (async () => {
         const result = await tryCatch(async () => 42);
-        expectType<Result<number, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<number, StdError>>();
 
         if (result.ok) {
-            expectType<number>(result.value);
-            expectType<null>(result.error);
+            expectTypeOf(result.value).toEqualTypeOf<number>();
+            expectTypeOf(result.error).toEqualTypeOf<null>();
         } else {
-            expectType<null>(result.value);
-            expectType<StdError>(result.error);
+            expectTypeOf(result.value).toEqualTypeOf<null>();
+            expectTypeOf(result.error).toEqualTypeOf<StdError>();
         }
     })();
 
     // Test sync function
     (async () => {
         const result = tryCatch(() => 'sync');
-        expectType<Result<string, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<string, StdError>>();
 
         if (result.ok) {
-            expectType<string>(result.value);
-            expectType<null>(result.error);
+            expectTypeOf(result.value).toEqualTypeOf<string>();
+            expectTypeOf(result.error).toEqualTypeOf<null>();
         }
     })();
 
     // Test with Promise.resolve
     (async () => {
         const result = await tryCatch(() => Promise.resolve(true));
-        expectType<Result<boolean, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<boolean, StdError>>();
 
         if (result.ok) {
-            expectType<boolean>(result.value);
+            expectTypeOf(result.value).toEqualTypeOf<boolean>();
         }
     })();
 
@@ -238,12 +236,12 @@ describe('Proper usage patterns with await', () => {
             async () => 'test',
             (err): CustomError => ({ code: err.name, msg: err.message })
         );
-        expectType<Result<string, CustomError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<string, CustomError>>();
 
         if (!result.ok) {
-            expectType<CustomError>(result.error);
-            expectType<string>(result.error.code);
-            expectType<string>(result.error.msg);
+            expectTypeOf(result.error).toEqualTypeOf<CustomError>();
+            expectTypeOf(result.error.code).toEqualTypeOf<string>();
+            expectTypeOf(result.error.msg).toEqualTypeOf<string>();
         }
     })();
 });
@@ -258,20 +256,20 @@ describe('Bug: Type Error when using tryCatch with non-inferred types', () => {
     // Using tryCatch without explicit generics
     (async () => {
         const result = await tryCatch(myFunction());
-        expectType<Result<MyResultType, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<MyResultType, StdError>>();
 
         if (result.ok) {
-            expectType<MyResultType>(result.value);
+            expectTypeOf(result.value).toEqualTypeOf<MyResultType>();
         }
     })();
 
     // Using tryCatch with explicit generics
     (async () => {
         const result = await tryCatch<MyResultType>(myFunction());
-        expectType<Result<MyResultType, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<MyResultType, StdError>>();
 
         if (result.ok) {
-            expectType<MyResultType>(result.value);
+            expectTypeOf(result.value).toEqualTypeOf<MyResultType>();
         }
     })();
 
@@ -280,10 +278,10 @@ describe('Bug: Type Error when using tryCatch with non-inferred types', () => {
         const result = await tryCatch(async () => {
             return { data: 'world' };
         });
-        expectType<Result<MyResultType, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<MyResultType, StdError>>();
 
         if (result.ok) {
-            expectType<MyResultType>(result.value);
+            expectTypeOf(result.value).toEqualTypeOf<MyResultType>();
         }
     })();
 
@@ -292,10 +290,10 @@ describe('Bug: Type Error when using tryCatch with non-inferred types', () => {
         const result = await tryCatch<MyResultType>(async () => {
             return { data: 'typescript' };
         });
-        expectType<Result<MyResultType, StdError>>(result);
+        expectTypeOf(result).toEqualTypeOf<Result<MyResultType, StdError>>();
 
         if (result.ok) {
-            expectType<MyResultType>(result.value);
+            expectTypeOf(result.value).toEqualTypeOf<MyResultType>();
         }
     })();
 });

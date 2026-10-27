@@ -50,7 +50,7 @@ pnpm run test -t "test name pattern"
 
 - Unit tests: `*.test.ts`
 - Fuzz tests using fast-check: `*.fuzz.test.ts`
-- Type tests: `test-types/*.test-d.ts` (checked with tsd)
+- Type tests: `test-types/*.test-d.ts`, checked by tsc (`pnpm run typecheck:test-types`). Use vitest `expectTypeOf` and `// @ts-expect-error`, not tsd assertions (tsc does not enforce those)
 
 ### Key Design Patterns
 

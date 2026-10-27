@@ -1,5 +1,10 @@
 import { stderr } from './stderr';
 import { StdError } from './StdError';
+import { isString } from './types';
+import { safeGet } from './utils';
+
+type CaptureStackTrace = (target: object, ctor?: unknown) => void;
+const captureStackTrace = (Error as ErrorConstructor & { captureStackTrace?: CaptureStackTrace }).captureStackTrace;
 
 /**
  * Represents a successful outcome with value
@@ -22,10 +27,10 @@ export type Result<T, E = StdError> = Success<T> | Failure<E>;
  *
  * Logic:
  * 1. If T is strictly 'never' (e.g. sync throw), return Result (Sync).
- * 2. If T is a Promise, return Promise<Result> (Async).
+ * 2. If T is a Promise or another thenable (PromiseLike), return Promise<Result> (Async): tryCatch awaits anything with a `then` method.
  * 3. Otherwise, return Result (Sync).
  */
-type TryCatchReturn<T, E> = [T] extends [never] ? Result<T, E> : T extends Promise<infer U> ? Promise<Result<U, E>> : Result<T, E>;
+type TryCatchReturn<T, E> = [T] extends [never] ? Result<T, E> : T extends PromiseLike<infer U> ? Promise<Result<U, E>> : Result<T, E>;
 
 /**
  * Wraps a function (sync or async) or a Promise to always return a Result object with standardized errors.
@@ -82,23 +87,25 @@ export function tryCatch<T, E = StdError>(fn: 0 extends 1 & T ? () => T : never,
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function tryCatch<T, E = StdError>(fn: () => never, mapError?: (normalizedError: StdError) => E): Result<never, E>;
 
-// Overload 2: Handle raw Promises (e.g. tryCatch(Promise.resolve(1)))
-export function tryCatch<T, E = StdError>(fn: Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
+// Overload 2: Handle raw Promises and other thenables (e.g. tryCatch(Promise.resolve(1)))
+export function tryCatch<T, E = StdError>(fn: PromiseLike<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
 
 // Overload 3: Handle async functions with explicit unwrapped type T
 // This allows tryCatch<MyType>(async () => ...) to work correctly
-export function tryCatch<T, E = StdError>(fn: () => Promise<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
+export function tryCatch<T, E = StdError>(fn: () => PromiseLike<T>, mapError?: (normalizedError: StdError) => E): Promise<Result<T, E>>;
 
 // Overload 4: Handle Functions (Sync or Async with inferred types)
 // This overload supports explicit generics like tryCatch<number, CustomError>(() => throw ...)
 export function tryCatch<T, E = StdError>(fn: () => T, mapError?: (normalizedError: StdError) => E): TryCatchReturn<T, E>;
 
 // Implementation
-export function tryCatch<T, E = StdError>(fn: Promise<T> | (() => T), mapError?: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>> {
+export function tryCatch<T, E = StdError>(fn: PromiseLike<T> | (() => T), mapError?: (normalizedError: StdError) => E): Result<T, E> | Promise<Result<T, E>> {
     const succeed = (v: T): Success<T> => ({ ok: true, value: v, error: null });
 
-    const fail = (e: unknown): Failure<E> => {
+    // `hideFrom` is the innermost library frame: a value thrown without a stack gets a stack that starts at its caller
+    const fail = (e: unknown, hideFrom: unknown): Failure<E> => {
         const normalized = stderr(e);
+        if (!isString(safeGet(e, 'stack')) && typeof captureStackTrace === 'function') captureStackTrace(normalized, hideFrom);
         if (!mapError) return { ok: false, value: null, error: normalized as unknown as E };
         try {
             return { ok: false, value: null, error: mapError(normalized) };
@@ -117,11 +124,12 @@ export function tryCatch<T, E = StdError>(fn: Promise<T> | (() => T), mapError?:
         // Check if the result is a Promise
         // Promise.resolve() adopts any thenable, so a then() that does not return a Promise still works
         if (result && typeof result.then === 'function') {
-            return Promise.resolve(result).then(succeed, fail) as Promise<Result<T, E>>;
+            const failAsync = (e: unknown): Failure<E> => fail(e, failAsync);
+            return Promise.resolve(result).then(succeed, failAsync) as Promise<Result<T, E>>;
         }
 
         return succeed(result as T) as Result<T, E>;
     } catch (error) {
-        return fail(error) as Result<T, E>;
+        return fail(error, tryCatch) as Result<T, E>;
     }
 }

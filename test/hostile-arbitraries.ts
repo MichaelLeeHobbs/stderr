@@ -249,14 +249,10 @@ export function build(root: Desc): unknown {
                 return withAncestor(track(e), () => {
                     const fields = ['name', 'message', 'stack', 'cause', 'errors'] as const;
                     for (const f of fields) {
-                        let fd = d[f];
-                        // KNOWN BUG F1 (review-final.test.ts): a StdError whose name AND message are objects that lead back to it
-                        // sends stderr()/toString() into exponential recursion. Keep StdError name/message primitive until fixed.
-                        if (d.cls === 'StdError' && (f === 'name' || f === 'message') && fd && fd.t !== 'prim') fd = undefined;
+                        const fd = d[f];
                         if (fd) Object.defineProperty(e, f, { value: go(fd), enumerable: d.cls === 'plain', configurable: true, writable: true });
                     }
                     for (const { key, val } of d.extra) {
-                        if (d.cls === 'StdError' && (key === 'name' || key === 'message') && val.t !== 'prim') continue; // KNOWN BUG F1
                         Object.defineProperty(e, toKey(key), { value: go(val), enumerable: true, configurable: true, writable: true });
                     }
                     return e;

@@ -1,6 +1,6 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { isArray, isErrorShaped, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, Primitive } from './types';
 import { LEGACY_LEAK_KEYS, MAX_REPEATED_REFERENCES } from './constants';
 
 /**
@@ -44,14 +44,13 @@ export function safeGet(source: unknown, key: string | symbol): unknown {
     }
 }
 
-const MAX_MARKER_SUFFIX = 100;
-
 /**
  * Returns `key`, or the first `${key}_N` (N >= 2) that is not yet an own property of target.
+ * Always terminates: each step needs another existing own key, and target has finitely many.
  */
 export function freeKey(target: object, key: string): string {
     let freeKey = key;
-    for (let n = 2; Object.prototype.hasOwnProperty.call(target, freeKey) && n <= MAX_MARKER_SUFFIX; n++) {
+    for (let n = 2; Object.prototype.hasOwnProperty.call(target, freeKey); n++) {
         freeKey = `${key}_${n}`;
     }
     return freeKey;
@@ -138,6 +137,13 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
             value = value.slice(0, maxArrayLength);
         }
 
+        // Maps and Sets are cut to maxArrayLength entries when normalized or serialized: mark it like an array
+        const size = maxArrayLength !== undefined ? collectionSize(value) : undefined;
+        if (size !== undefined && size > maxArrayLength!) {
+            const kind = isInstanceOf(value, Map) ? 'Map' : 'Set';
+            markers.push([`_truncated_${String(key)}`, `${kind} size (${size}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`]);
+        }
+
         if (normalizeValue) {
             value = normalizeValue(value);
         } else if (convertSymbolKeys && isSymbol(value)) {
@@ -152,6 +158,16 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
 
     // Markers go last so they never overwrite (or get overwritten by) a user property of the same name
     for (const [key, message] of markers) addMarker(target, key, message);
+}
+
+/** The size of a Map or Set, or undefined for anything else (including one whose size cannot be read). */
+function collectionSize(value: unknown): number | undefined {
+    if (!isInstanceOf(value, Map) && !isInstanceOf(value, Set)) return undefined;
+    try {
+        return value.size;
+    } catch {
+        return undefined;
+    }
 }
 
 /**
@@ -194,8 +210,13 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
         // callers pass `excludeKeys: new Set()` (stderr.ts:46, stderr.ts:95) and would opt out.
         if (CRITICAL_SECURITY_KEYS.has(keyStr) || LEGACY_LEAK_KEYS.has(keyStr) || excludeKeys.has(keyStr)) return false;
 
-        // If we only want enumerable keys, check enumerability
-        return includeNonEnumerable || Object.prototype.propertyIsEnumerable.call(obj, key);
+        // If we only want enumerable keys, check enumerability (a Proxy's getOwnPropertyDescriptor trap can throw)
+        if (includeNonEnumerable) return true;
+        try {
+            return Object.prototype.propertyIsEnumerable.call(obj, key);
+        } catch {
+            return false;
+        }
     });
 }
 
@@ -251,7 +272,12 @@ export function unknownToString(input: unknown): string {
 
     // Handle Objects
     try {
-        if (isErrorShaped(input) && (input.message || input.name)) return String(input.message || input.name);
+        // Only a primitive name/message: String() on an object would call its toString(), and StdError.toString()
+        // calls back into this function, so an error whose name and message are itself would never finish
+        if (isErrorShaped(input)) {
+            const text = [input.message, input.name].find(v => isPrimitive(v) && Boolean(v));
+            if (text !== undefined) return String(text);
+        }
         const ctorName = (input as object).constructor?.name;
         if (ctorName && ctorName !== 'Object') return `[object ${ctorName}]`;
         return Object.prototype.toString.call(input);

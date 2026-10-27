@@ -1,7 +1,5 @@
 // test/review-final.test.ts
-// Final pre-3.0.0 review: one test per finding, written as it.fails so the suite stays green while the bug exists.
-// Each test asserts the CORRECT behaviour. When a bug is fixed its test starts passing, it.fails then fails,
-// and the test should become a plain it().
+// Final pre-3.0.0 review: one regression test per proven finding (F1-F7). Each started as an it.fails proof of the bug.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { stderr, StdError, tryCatch } from '../src';
 
@@ -24,33 +22,40 @@ describe('F1: a StdError whose name and message lead back to it hangs stderr() a
         return () => calls;
     };
 
+    // V8 formats `stack` lazily, and vitest's prepareStackTrace hook calls toString() to build its first line.
+    // Reading it first keeps that environment-only call out of the counts.
+    const withStack = (e: StdError) => {
+        void e.stack;
+        return e;
+    };
+
     const selfReferencing = () => {
-        const e = new StdError('x');
+        const e = withStack(new StdError('x'));
         Object.assign(e, { name: e, message: e });
         return e;
     };
 
-    it.fails('stderr() does not re-enter toString() without bound', () => {
+    it('stderr() does not re-enter toString() without bound', () => {
         const calls = capToString();
         stderr(selfReferencing());
         expect(calls()).toBeLessThan(10);
     });
 
-    it.fails('toString() does not re-enter itself without bound', () => {
+    it('toString() does not re-enter itself without bound', () => {
         const calls = capToString();
         selfReferencing().toString();
         expect(calls()).toBeLessThan(10);
     });
 
-    it.fails('toJSON() does not call toString() without bound', () => {
+    it('toJSON() does not call toString() without bound', () => {
         const calls = capToString();
         selfReferencing().toJSON();
         expect(calls()).toBeLessThan(10);
     });
 
-    it.fails('one self-referencing message does not recurse until the stack overflows', () => {
+    it('one self-referencing message does not recurse until the stack overflows', () => {
         // Linear, so it finishes, but only after a stack overflow (about 200ms) that unknownToString() swallows
-        const e = new StdError('x');
+        const e = withStack(new StdError('x'));
         Object.assign(e, { message: e });
         const calls = capToString();
         e.toString();
@@ -62,7 +67,7 @@ describe('F2: toJSON() turns an errors map with a `name` or `message` field into
     // B1 made stderr() keep { name: 'required', email: 'invalid' } as a map (isErrorLike, not isErrorShaped).
     // toJSON() still serializes `errors` with the lenient isErrorShaped check, so the same map becomes an error there:
     // its `name` entry is flattened into the error name and gets a made-up `message: ''`.
-    it.fails('keeps a `name` field of an errors map as a nested error', () => {
+    it('keeps a `name` field of an errors map as a nested error', () => {
         const e = stderr({ message: 'Validation failed', errors: { name: 'required', email: 'invalid' } });
         expect(e.errors).toHaveProperty('name.message', 'required'); // stderr() is right
         const errors = e.toJSON().errors as Record<string, unknown>;
@@ -70,14 +75,14 @@ describe('F2: toJSON() turns an errors map with a `name` or `message` field into
         expect(errors).not.toHaveProperty('message');
     });
 
-    it.fails('keeps a `message` field of an errors map as a nested error', () => {
+    it('keeps a `message` field of an errors map as a nested error', () => {
         const e = stderr({ message: 'Validation failed', errors: { message: 'too short', password: 'weak' } });
         const errors = e.toJSON().errors as Record<string, unknown>;
         expect(errors.message).toMatchObject({ name: 'Error', message: 'too short' });
         expect(errors).not.toHaveProperty('name');
     });
 
-    it.fails('a JSON round trip keeps the map', () => {
+    it('a JSON round trip keeps the map', () => {
         const e = stderr({ message: 'Validation failed', errors: { name: 'required', email: 'invalid' } });
         const again = stderr(JSON.parse(JSON.stringify(e)));
         expect(Object.keys(again.errors as object).sort()).toEqual(['email', 'name']);
@@ -97,11 +102,11 @@ describe('F3: a Map of errors with a `__proto__` key replaces the prototype of t
             ]),
         });
 
-    it.fails('the errors map stays a plain object', () => {
+    it('the errors map stays a plain object', () => {
         expect(Object.getPrototypeOf(make().errors)).toBe(Object.prototype);
     });
 
-    it.fails('toJSON() keeps the map entries', () => {
+    it('toJSON() keeps the map entries', () => {
         expect(make().toJSON().errors).toEqual({ ok: { name: 'Error', message: 'fine' } });
     });
 });
@@ -129,13 +134,13 @@ describe('F4: toJSON() and toString() throw on built-ins they cannot read (StdEr
     ];
 
     for (const [label, value] of cases) {
-        it.fails(`JSON.stringify() does not throw for ${label}`, () => {
+        it(`JSON.stringify() does not throw for ${label}`, () => {
             const e = new StdError('x', { data: value() });
             expect(() => JSON.stringify(e)).not.toThrow();
         });
     }
 
-    it.fails('toString() does not throw for a Proxy of a Map', () => {
+    it('toString() does not throw for a Proxy of a Map', () => {
         const e = new StdError('x', { data: new Proxy(new Map(), {}) });
         expect(() => e.toString()).not.toThrow();
     });
@@ -149,7 +154,7 @@ describe('F5: Map and Set metadata are truncated without a marker', () => {
         expect(e._truncated_list).toBe('Array length (3) exceeds limit (2), showing first 2');
     });
 
-    it.fails('a Map over maxArrayLength is marked', () => {
+    it('a Map over maxArrayLength is marked', () => {
         const e = stderr(
             {
                 message: 'm',
@@ -164,7 +169,7 @@ describe('F5: Map and Set metadata are truncated without a marker', () => {
         expect(Object.keys(e).some(k => k.startsWith('_truncated'))).toBe(true);
     });
 
-    it.fails('a Set over maxArrayLength is marked', () => {
+    it('a Set over maxArrayLength is marked', () => {
         const e = stderr({ message: 'm', data: new Set([1, 2, 3]) }, { maxArrayLength: 2 });
         expect(Object.keys(e).some(k => k.startsWith('_truncated'))).toBe(true);
     });
@@ -173,7 +178,7 @@ describe('F5: Map and Set metadata are truncated without a marker', () => {
 describe('F6: errors normalized by tryCatch get a stack that starts inside the library', () => {
     // B6: a value without a stack gets the stack of the code that called stderr(). Through tryCatch that caller is
     // tryCatch's own `fail`, so the first frames are tryCatch internals (dist/index.js for users).
-    it.fails('the first frame of a thrown string is not in tryCatch', () => {
+    it('the first frame of a thrown string is not in tryCatch', () => {
         const r = tryCatch((): never => {
             throw 'plain string';
         });
@@ -185,7 +190,7 @@ describe('F6: errors normalized by tryCatch get a stack that starts inside the l
 describe('F7: freeKey() gives up after 100 tries and overwrites', () => {
     // freeKey returns `${key}_100` even when it is taken, so the 101st colliding key overwrites it.
     // Reachable with more than 100 symbol keys that share a description (B9 aimed to keep all of them).
-    it.fails('keeps 103 distinct symbols with the same description', () => {
+    it('keeps 103 distinct symbols with the same description', () => {
         const input: Record<string | symbol, unknown> = { message: 'm' };
         for (let i = 0; i < 103; i++) input[Symbol('id')] = i;
         const e = stderr(input);

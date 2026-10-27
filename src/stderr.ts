@@ -10,6 +10,7 @@ import {
     boundKeys,
     checkDepthLimit,
     copyPropertiesTo,
+    CRITICAL_SECURITY_KEYS,
     freeKey,
     getCustomKeys,
     isMarkerKey,
@@ -21,7 +22,7 @@ import {
     validateLimits,
     VisitTracker,
 } from './utils';
-import { MAX_ARRAY_LENGTH, MAX_DEPTH, MAX_PROPERTIES } from './constants';
+import { LEGACY_LEAK_KEYS, MAX_ARRAY_LENGTH, MAX_DEPTH, MAX_PROPERTIES } from './constants';
 
 export interface NormalizeOptions {
     maxDepth?: number;
@@ -141,7 +142,10 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
             const normObj: ErrorRecord = {};
             const entries = Array.from(errors.entries());
             for (const [key, value] of entries.slice(0, opts.maxProperties)) {
-                normObj[freeKey(normObj, unknownToString(key))] = convertToErrorShape(value, opts, depth, tracker);
+                const keyStr = unknownToString(key);
+                // Same keys as a plain-object map drops: `normObj['__proto__'] = ...` would replace its prototype
+                if (CRITICAL_SECURITY_KEYS.has(keyStr) || LEGACY_LEAK_KEYS.has(keyStr)) continue;
+                normObj[freeKey(normObj, keyStr)] = convertToErrorShape(value, opts, depth, tracker);
             }
             if (entries.length > opts.maxProperties) {
                 addMarker(
