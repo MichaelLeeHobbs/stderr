@@ -1,7 +1,7 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { isErrorShaped, isObject, isPrimitive, isString, isSymbol, Primitive } from './types';
-import { LEGACY_LEAK_KEYS } from './constants';
+import { isArray, isErrorShaped, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { LEGACY_LEAK_KEYS, MAX_REPEATED_REFERENCES } from './constants';
 
 /**
  * Standard Error property keys that should be excluded when extracting custom properties
@@ -34,46 +34,76 @@ export interface CopyPropertiesOptions {
 }
 
 /**
+ * Reads a property without letting a throwing getter or a revoked Proxy escape.
+ */
+export function safeGet(source: unknown, key: string | symbol): unknown {
+    try {
+        return (source as Record<string | symbol, unknown>)[key];
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Writes a library marker (e.g. `_truncated`) without overwriting user data.
+ * If the key is already taken, the first free `${key}_N` (N >= 2) is used instead.
+ */
+export function addMarker(target: Record<string | symbol, unknown>, key: string, message: string): void {
+    let markerKey = key;
+    for (let n = 2; Object.prototype.hasOwnProperty.call(target, markerKey) && n <= MAX_MARKER_SUFFIX; n++) {
+        markerKey = `${key}_${n}`;
+    }
+    target[markerKey] = message;
+}
+
+const MAX_MARKER_SUFFIX = 100;
+
+/**
  * Copies properties from source to target with filtering and optional normalization.
+ *
+ * Errors thrown while READING a property (throwing getters, revoked proxies) are swallowed and the
+ * property is skipped. Errors thrown by `normalizeValue` are library errors and propagate.
  */
 export function copyPropertiesTo(source: object, target: Record<string | symbol, unknown>, options: CopyPropertiesOptions = {}): void {
     const { excludeKeys = DEFAULT_EXCLUDE_KEYS, skipFunctions = true, convertSymbolKeys = false, normalizeValue, maxProperties, maxArrayLength } = options;
 
     const keys = getCustomKeys(source, { includeNonEnumerable: true, excludeKeys });
     const limit = maxProperties !== undefined ? maxProperties : keys.length;
+    const markers: [string, string][] = [];
 
-    // Add truncation marker if needed
     if (keys.length > limit) {
-        target['_truncated'] = `Property count (${keys.length}) exceeds limit (${limit}), showing first ${limit}`;
+        markers.push(['_truncated', `Property count (${keys.length}) exceeds limit (${limit}), showing first ${limit}`]);
     }
 
     const boundedKeys = keys.slice(0, limit);
 
     for (const key of boundedKeys) {
+        let value: unknown;
         try {
-            let value = (source as Record<string | symbol, unknown>)[key];
-
-            if (skipFunctions && typeof value === 'function') continue;
-
-            // Track array truncation before normalization
-            if (maxArrayLength !== undefined && Array.isArray(value) && value.length > maxArrayLength) {
-                const truncKey = `_truncated_${String(key)}`;
-                target[truncKey] = `Array length (${value.length}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`;
-            }
-
-            if (normalizeValue) {
-                value = normalizeValue(value);
-            } else if (convertSymbolKeys && isSymbol(value)) {
-                value = value.toString();
-            }
-
-            const targetKey = convertSymbolKeys && isSymbol(key) ? key.toString() : key;
-            if (value !== undefined) target[targetKey] = value;
-        } catch (err) {
-            // Re-throw critical errors, ignore property access errors
-            if (err instanceof RangeError || err instanceof ReferenceError) throw err;
+            value = (source as Record<string | symbol, unknown>)[key];
+        } catch {
+            continue;
         }
+
+        if (skipFunctions && typeof value === 'function') continue;
+
+        if (maxArrayLength !== undefined && isArray(value) && value.length > maxArrayLength) {
+            markers.push([`_truncated_${String(key)}`, `Array length (${value.length}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`]);
+            value = value.slice(0, maxArrayLength);
+        }
+
+        if (normalizeValue) {
+            value = normalizeValue(value);
+        } else if (convertSymbolKeys && isSymbol(value)) {
+            value = value.toString();
+        }
+
+        const targetKey = convertSymbolKeys && isSymbol(key) ? key.toString() : key;
+        if (value !== undefined) target[targetKey] = value;
     }
+
+    // Markers go last so they never overwrite (or get overwritten by) a user property of the same name
+    for (const [key, message] of markers) addMarker(target, key, message);
 }
 
 /**
@@ -102,7 +132,15 @@ export interface GetCustomKeysOptions {
 export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): (string | symbol)[] {
     const { includeNonEnumerable = false, excludeKeys = DEFAULT_EXCLUDE_KEYS } = options;
 
-    return Reflect.ownKeys(obj).filter(key => {
+    let ownKeys: (string | symbol)[];
+    try {
+        ownKeys = Reflect.ownKeys(obj);
+    } catch {
+        // Revoked Proxy or a throwing ownKeys trap: nothing readable
+        return [];
+    }
+
+    return ownKeys.filter(key => {
         const keyStr = key.toString();
         // LEGACY_LEAK_KEYS sits beside CRITICAL_SECURITY_KEYS, NOT inside excludeKeys, because
         // callers pass `excludeKeys: new Set()` (stderr.ts:46, stderr.ts:95) and would opt out.
@@ -117,12 +155,36 @@ export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): s
     return depth >= maxDepth ? `${indent}[Max depth of ${maxDepth} reached]` : null;
 }
 
-export function checkCircular(value: unknown, seen: WeakSet<object>, indent = ''): string | null {
-    return isObject(value) && seen.has(value) ? `${indent}[Circular]` : null;
-}
+/**
+ * Tracks objects during a single recursive walk.
+ *
+ * Circular means "is an ANCESTOR of the current value", so an object referenced twice from different
+ * branches (a DAG) is output in full both times. To keep crafted DAGs from blowing up exponentially,
+ * repeat visits share a fixed budget; once it is spent, further repeats become `[Repeated reference]`.
+ */
+export class VisitTracker {
+    private readonly ancestors = new WeakSet<object>();
+    private readonly visited = new WeakSet<object>();
+    private repeats = 0;
 
-export function trackSeen(value: unknown, seen: WeakSet<object>): void {
-    if (isObject(value)) seen.add(value);
+    /** Returns a marker string if the value must not be expanded, otherwise records it as an ancestor. */
+    enter(value: object): string | null {
+        if (this.ancestors.has(value)) return '[Circular]';
+        if (this.visited.has(value) && ++this.repeats > MAX_REPEATED_REFERENCES) return '[Repeated reference]';
+        this.visited.add(value);
+        this.ancestors.add(value);
+        return null;
+    }
+
+    leave(value: object): void {
+        this.ancestors.delete(value);
+    }
+
+    /** Marks a value as an ancestor for the rest of the walk (used for the root). */
+    hold(value: object): void {
+        this.visited.add(value);
+        this.ancestors.add(value);
+    }
 }
 
 /**

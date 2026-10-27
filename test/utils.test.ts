@@ -389,34 +389,32 @@ describe('copyPropertiesTo', () => {
             expect(target.thrower).toBeUndefined();
         });
 
-        it('re-throws RangeError', () => {
-            const source: Record<string, unknown> = {};
+        it.each([RangeError, ReferenceError, TypeError])('skips a property whose getter throws %p', ErrorType => {
+            // A throwing getter is the SOURCE object's problem, whatever error type it throws:
+            // it must not abort normalization (review finding #2).
+            const source: Record<string, unknown> = { normal: 'value' };
 
-            Object.defineProperty(source, 'range', {
+            Object.defineProperty(source, 'thrower', {
                 get() {
-                    throw new RangeError('Range error');
+                    throw new ErrorType('getter failed');
                 },
                 enumerable: true,
             });
 
             const target: Record<string, unknown> = {};
 
-            expect(() => copyPropertiesTo(source, target)).toThrow(RangeError);
+            expect(() => copyPropertiesTo(source, target)).not.toThrow();
+            expect(target.normal).toBe('value');
+            expect(target.thrower).toBeUndefined();
         });
 
-        it('re-throws ReferenceError', () => {
-            const source: Record<string, unknown> = {};
-
-            Object.defineProperty(source, 'ref', {
-                get() {
-                    throw new ReferenceError('Reference error');
-                },
-                enumerable: true,
-            });
-
+        it('propagates errors thrown by normalizeValue', () => {
             const target: Record<string, unknown> = {};
+            const normalizeValue = (): never => {
+                throw new RangeError('library bug');
+            };
 
-            expect(() => copyPropertiesTo(source, target)).toThrow(ReferenceError);
+            expect(() => copyPropertiesTo({ a: 1 }, target, { normalizeValue })).toThrow(RangeError);
         });
     });
 

@@ -4,8 +4,8 @@
 
 import { StdError } from './StdError';
 import type { ErrorRecord, ErrorShape } from './types';
-import { isArray, isErrorShaped, isFunction, isObject, isPrimitive, isSymbol } from './types';
-import { checkDepthLimit, getCustomKeys, primitiveToError, unknownToString, copyPropertiesTo } from './utils';
+import { isArray, isErrorInstance, isErrorLike, isErrorShaped, isFunction, isInstanceOf, isObject, isPrimitive, isString, isSymbol } from './types';
+import { addMarker, checkDepthLimit, copyPropertiesTo, getCustomKeys, primitiveToError, safeGet, unknownToString, VisitTracker } from './utils';
 import { MAX_ARRAY_LENGTH, MAX_DEPTH, MAX_PROPERTIES } from './constants';
 
 export interface NormalizeOptions {
@@ -26,30 +26,54 @@ let _maxDepth = MAX_DEPTH;
 let _maxProperties = MAX_PROPERTIES;
 let _maxArrayLength = MAX_ARRAY_LENGTH;
 
-const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): unknown => {
-    if (checkDepthLimit(depth, opts.maxDepth)) return checkDepthLimit(depth, opts.maxDepth);
+const normalizeProperty = (v: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown =>
+    !isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, tracker) : isSymbol(v) ? v.toString() : v;
+
+const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown => {
+    const depthCheck = checkDepthLimit(depth, opts.maxDepth);
+    if (depthCheck) return depthCheck;
     if (isSymbol(input)) return input.toString();
     if (isPrimitive(input)) return input;
 
-    if (seen.has(input as object)) return '[Circular]';
-    seen.add(input as object);
+    const marker = tracker.enter(input as object);
+    if (marker) return marker;
+    try {
+        return normalizeObject(input as object, opts, depth, tracker);
+    } finally {
+        tracker.leave(input as object);
+    }
+};
 
+const normalizeObject = (input: object, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown => {
     if (isArray(input)) {
         // For arrays, just return the bounded slice - truncation metadata added by caller if needed
-        return input.slice(0, opts.maxArrayLength).map(e => normalizeUnknown(e, opts, depth + 1, seen));
+        return input.slice(0, opts.maxArrayLength).map(e => normalizeUnknown(e, opts, depth + 1, tracker));
     }
 
-    if (isErrorShaped(input)) return normalizeObjectToError(input as ErrorRecord, opts, depth, seen);
+    // Built-ins whose state is not in own properties would otherwise collapse to {}
+    if (isInstanceOf(input, Date)) return new Date(input.getTime());
+    if (isInstanceOf(input, RegExp)) return input.toString();
+    if (isInstanceOf(input, Map)) {
+        const entries = Array.from(input.entries()).slice(0, opts.maxArrayLength);
+        return new Map(entries.map(([k, v]) => [normalizeProperty(k, opts, depth, tracker), normalizeProperty(v, opts, depth, tracker)]));
+    }
+    if (isInstanceOf(input, Set)) {
+        const values = Array.from(input.values()).slice(0, opts.maxArrayLength);
+        return new Set(values.map(v => normalizeProperty(v, opts, depth, tracker)));
+    }
+
+    // Metadata uses the stricter isErrorLike: { name: 'bob' } is data, not an error
+    if (isErrorLike(input)) return normalizeObjectToError(input as ErrorRecord, opts, depth, tracker);
 
     if (isObject(input)) {
         const normalized: ErrorRecord = {};
-        copyPropertiesTo(input as object, normalized, {
+        copyPropertiesTo(input, normalized, {
             excludeKeys: new Set(),
             skipFunctions: true,
             convertSymbolKeys: true,
             maxProperties: opts.maxProperties,
             maxArrayLength: opts.maxArrayLength,
-            normalizeValue: v => (!isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, seen) : isSymbol(v) ? v.toString() : v),
+            normalizeValue: v => normalizeProperty(v, opts, depth, tracker),
         });
         return normalized;
     }
@@ -57,94 +81,110 @@ const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth:
     return unknownToString(input);
 };
 
-const convertToErrorShape = (value: unknown, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
-    const normalized = normalizeUnknown(value, opts, depth + 1, seen);
-    if (isErrorShaped(normalized)) return normalized;
+const convertToErrorShape = (value: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): ErrorShape => {
+    const normalized = normalizeUnknown(value, opts, depth + 1, tracker);
+    if (isErrorInstance(normalized)) return normalized as ErrorShape;
     if (isPrimitive(normalized)) return primitiveToError(normalized);
-    if (isObject(normalized)) return normalizeObjectToError(normalized as ErrorRecord, opts, depth + 1, seen);
+    if (isObject(normalized)) return normalizeObjectToError(normalized as ErrorRecord, opts, depth + 1, tracker);
     /* node:coverage ignore next - should be unreachable */
     return new StdError(unknownToString(value) ?? 'Unknown', { maxDepth: opts.maxDepth });
 };
 
-const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, seen: WeakSet<object>): ErrorShape => {
+const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): ErrorShape => {
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
     /* node:coverage ignore next 1 - failsafe, will always be caught before this point */
     if (depthCheck) return new StdError(depthCheck, { maxDepth: opts.maxDepth });
 
-    const normalizedCause = input.cause ? convertToErrorShape(input.cause, opts, depth, seen) : undefined;
+    // Read every standard field through safeGet: a throwing getter must not abort normalization
+    const cause = safeGet(input, 'cause');
+    const errors = safeGet(input, 'errors');
+    const name = safeGet(input, 'name');
+    const message = safeGet(input, 'message');
+    const stack = safeGet(input, 'stack');
+
+    // Only undefined/null mean "no cause": 0, '' and false are real values
+    const normalizedCause = cause !== undefined && cause !== null ? convertToErrorShape(cause, opts, depth, tracker) : undefined;
 
     let normalizedErrors: ErrorShape[] | ErrorRecord | undefined;
     let isSingleErrorAggregate = false;
     let truncationInfo: string | undefined;
 
     // Simplified errors handling
-    if (input.errors) {
-        if (isArray(input.errors)) {
-            const originalLength = input.errors.length;
-            const bounded = input.errors.slice(0, opts.maxArrayLength);
-            normalizedErrors = bounded.map(e => convertToErrorShape(e, opts, depth, seen));
+    if (errors) {
+        if (isArray(errors)) {
+            const originalLength = errors.length;
+            const bounded = errors.slice(0, opts.maxArrayLength);
+            normalizedErrors = bounded.map(e => convertToErrorShape(e, opts, depth, tracker));
 
             // Track truncation info
             if (originalLength > opts.maxArrayLength) {
                 truncationInfo = `Array length (${originalLength}) exceeds limit (${opts.maxArrayLength}), showing first ${opts.maxArrayLength}`;
             }
-        } else if (isObject(input.errors) && !isErrorShaped(input.errors)) {
+        } else if (isObject(errors) && !isErrorShaped(errors)) {
             // Map of errors
-            const errObj = input.errors as ErrorRecord;
+            const errObj = errors as ErrorRecord;
             const normObj: ErrorRecord = {};
             const allKeys = getCustomKeys(errObj, { includeNonEnumerable: true, excludeKeys: new Set() });
             const boundedKeys = allKeys.slice(0, opts.maxProperties);
 
             for (const key of boundedKeys) {
-                normObj[key.toString()] = convertToErrorShape(errObj[key], opts, depth, seen);
+                normObj[key.toString()] = convertToErrorShape(safeGet(errObj, key), opts, depth, tracker);
             }
 
             // Add truncation marker if needed
             if (allKeys.length > opts.maxProperties) {
-                normObj._truncated = `Property count (${allKeys.length}) exceeds limit (${opts.maxProperties}), showing first ${opts.maxProperties}`;
+                addMarker(
+                    normObj,
+                    '_truncated',
+                    `Property count (${allKeys.length}) exceeds limit (${opts.maxProperties}), showing first ${opts.maxProperties}`
+                );
             }
             normalizedErrors = normObj;
         } else {
             // Single error treated as aggregate (Error instance or other object)
             isSingleErrorAggregate = true;
-            normalizedErrors = [convertToErrorShape(input.errors, opts, depth, seen)];
+            normalizedErrors = [convertToErrorShape(errors, opts, depth, tracker)];
         }
     }
 
-    const finalName = input.name ? unknownToString(input.name) : isSingleErrorAggregate ? 'AggregateError' : 'Error';
+    const finalName = name ? unknownToString(name) : isSingleErrorAggregate ? 'AggregateError' : 'Error';
 
     let finalMessage = '';
     if (isSingleErrorAggregate) {
         finalMessage = 'AggregateError';
-    } else if (input.message !== undefined && input.message !== null) {
-        finalMessage = isObject(input.message) ? unknownToString(normalizeUnknown(input.message, opts, depth + 1, seen)) : unknownToString(input.message);
+    } else if (message !== undefined && message !== null) {
+        finalMessage = isObject(message) ? unknownToString(normalizeUnknown(message, opts, depth + 1, tracker)) : unknownToString(message);
     }
 
     const e = new StdError(finalMessage, {
         name: finalName,
         maxDepth: opts.maxDepth,
+        maxProperties: opts.maxProperties,
+        maxArrayLength: opts.maxArrayLength,
         cause: normalizedCause,
         errors: normalizedErrors,
     });
 
-    // Add truncation info to the error itself if array was truncated
-    if (truncationInfo) {
-        e._truncated = truncationInfo;
-    }
+    // Keep the original stack: a fresh one would point into this file instead of the error's origin
+    if (isString(stack)) e.stack = stack;
 
     copyPropertiesTo(input, e, {
         skipFunctions: true,
         convertSymbolKeys: true,
         maxProperties: opts.maxProperties,
         maxArrayLength: opts.maxArrayLength,
-        normalizeValue: v => (!isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, seen) : isSymbol(v) ? v.toString() : v),
+        normalizeValue: v => normalizeProperty(v, opts, depth, tracker),
     });
+
+    // Added after the copy so a user property named `_truncated` cannot overwrite it
+    if (truncationInfo) addMarker(e, '_truncated', truncationInfo);
 
     return e;
 };
 
 /**
- * Normalize any input into a StdError instance
+ * Normalize any input into a StdError instance.
+ * Never throws: an input that cannot be read at all (e.g. a revoked Proxy) becomes a placeholder StdError.
  * @param input - Input to normalize
  * @param options - Normalization options
  * @returns Normalized StdError instance
@@ -161,28 +201,20 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
         maxProperties: options.maxProperties ?? _maxProperties,
         maxArrayLength: options.maxArrayLength ?? _maxArrayLength,
     };
-    const seen = new WeakSet<object>();
+    const tracker = new VisitTracker();
 
-    let e: ErrorShape;
-    const originalStack = isErrorShaped(input) ? input.stack : undefined;
+    try {
+        if (isPrimitive(input)) return primitiveToError(input);
 
-    if (isPrimitive(input)) {
-        e = primitiveToError(input);
-    } else {
-        seen.add(input as object);
-        if (isFunction(input)) {
-            e = primitiveToError(unknownToString(input));
-        } else if (isArray(input)) {
-            e = normalizeObjectToError({ errors: input, name: 'AggregateError', message: 'AggregateError' }, opts, 0, seen);
-        } else if (isObject(input)) {
-            e = normalizeObjectToError(input as ErrorRecord, opts, 0, seen);
-        } /* node:coverage ignore next 3 - impossible, but TypeScript doesn't know that */ else {
-            throw new TypeError(`Cannot normalize value to StdError: ${typeof input}`);
+        tracker.hold(input as object);
+        if (isFunction(input)) return primitiveToError(unknownToString(input));
+        if (isArray(input)) {
+            return normalizeObjectToError({ errors: input, name: 'AggregateError', message: 'AggregateError' }, opts, 0, tracker) as StdError;
         }
+        return normalizeObjectToError(input as ErrorRecord, opts, 0, tracker) as StdError;
+    } catch (err) {
+        return new StdError(`Unknown error (could not normalize value: ${unknownToString(err)})`, { maxDepth: opts.maxDepth });
     }
-
-    if (originalStack) e.stack = originalStack;
-    return e as StdError;
 };
 
 Object.defineProperty(stderr, 'maxDepth', {

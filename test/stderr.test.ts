@@ -1518,14 +1518,14 @@ describe('idempotency / internal state never leaks', () => {
 
         // The feature itself still works: maxDepth is honored off-instance.
         const truncated = stderr(deep, { maxDepth: 2 });
-        expect(noStack(truncated.toString())).toBe(['Error: l0', '  [cause]:   Error: l1', '    [cause]: [Max depth of 2 reached]'].join('\n'));
+        expect(noStack(truncated.toString())).toBe(['Error: l0', '  [cause]: Error: l1', '    [cause]: [Max depth of 2 reached]'].join('\n'));
 
         // Re-normalizing with the default (8) yields byte-for-byte what main produced
         // MINUS the two leaked `Symbol(stderr_maxDepth): 2` lines. The truncation marker is
         // baked into the deepest cause's MESSAGE as literal data by the first normalize, so it
         // survives re-normalization -- that is pre-existing behavior and is pinned here on purpose.
         const renormalized = stderr(truncated);
-        expect(noStack(renormalized.toString())).toBe(['Error: l0', '  [cause]:   Error: l1', '    [cause]:     Error: [Max depth of 2 reached]'].join('\n'));
+        expect(noStack(renormalized.toString())).toBe(['Error: l0', '  [cause]: Error: l1', '    [cause]: Error: [Max depth of 2 reached]'].join('\n'));
         expect(renormalized.toString()).not.toMatch(/Symbol\(stderr_/);
     });
 

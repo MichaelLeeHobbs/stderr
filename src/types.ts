@@ -54,7 +54,14 @@ export type WithRequiredType<T, K extends keyof T, V> = Omit<T, K> & {
 /* Basic Type Guards */
 export const isString = (input: unknown): input is string => typeof input === 'string';
 
-export const isArray = Array.isArray as (input: unknown) => input is unknown[];
+export const isArray = (input: unknown): input is unknown[] => {
+    try {
+        return Array.isArray(input);
+    } catch {
+        // Revoked Proxy
+        return false;
+    }
+};
 
 export const isFunction = (input: unknown): input is (...args: unknown[]) => unknown => typeof input === 'function';
 
@@ -63,16 +70,53 @@ export const isSymbol = (input: unknown): input is symbol => typeof input === 's
 /** Narrow object-only values (not functions). */
 export const isObject = (value: unknown): value is object => typeof value === 'object' && value !== null;
 
-export const isErrorInstance = (v: unknown): v is Error => v instanceof Error;
+/** `instanceof` that returns false instead of throwing on a revoked Proxy. */
+export const isInstanceOf = <T>(value: unknown, ctor: abstract new (...args: never[]) => T): value is T => {
+    try {
+        return value instanceof ctor;
+    } catch {
+        return false;
+    }
+};
+
+export const isErrorInstance = (v: unknown): v is Error => {
+    try {
+        return v instanceof Error;
+    } catch {
+        // Revoked Proxy: instanceof calls getPrototypeOf, which throws
+        return false;
+    }
+};
 
 export const isPrimitive = (value: unknown): value is string | number | boolean | null | undefined | symbol | bigint => {
     return !isObject(value) && typeof value !== 'function';
 };
 
+const ownKeysOrEmpty = (input: object): (string | symbol)[] => {
+    try {
+        return Reflect.ownKeys(input);
+    } catch {
+        // Revoked Proxy or a Proxy whose ownKeys trap throws
+        return [];
+    }
+};
+
 export const isErrorShaped = (input: unknown): input is ErrorShape => {
     if (!isObject(input)) return false;
     if (isErrorInstance(input)) return true; // fast path for real Error
-    const keys = Reflect.ownKeys(input);
+    const keys = ownKeysOrEmpty(input);
     // Any of the common Error-ish fields present counts as "error-shaped"
     return keys.some(k => k === 'name' || k === 'message' || k === 'cause' || k === 'errors' || k === 'stack');
+};
+
+/**
+ * Stricter check for values found in METADATA (custom properties), where `{ name: 'bob' }` is data, not an error.
+ * True for real Errors, and for plain objects that carry a `message` together with a `name` or `stack`
+ * (e.g. an error rehydrated from a JSON log).
+ */
+export const isErrorLike = (input: unknown): input is ErrorShape => {
+    if (!isObject(input)) return false;
+    if (isErrorInstance(input)) return true;
+    const keys = ownKeysOrEmpty(input);
+    return keys.includes('message') && (keys.includes('name') || keys.includes('stack'));
 };
