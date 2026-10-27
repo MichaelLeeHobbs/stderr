@@ -70,6 +70,12 @@ for (const [label, mod] of copies) {
     console.log(`\n${label}`);
     assert(typeof mod.stderr === 'function', `${label}: stderr is not a function`);
 
+    // The bundler renames a class that refers to itself by name (`class _StdError`), which then shows in
+    // console.log / util.inspect output as `_StdError [Error]: ...`
+    check('StdError keeps its class name', () => {
+        assert(mod.StdError.name === 'StdError', `${label}: StdError.name is ${JSON.stringify(mod.StdError.name)}`);
+    });
+
     check('re-normalization does not leak (root + cause)', () => {
         const e = new Error('fetch failed', { cause: new Error('boom') });
         const n = mod.stderr(mod.stderr(e));
