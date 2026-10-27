@@ -46,3 +46,10 @@ export const MAX_INLINE_ITEMS = 3;
  * deleted once v<=2.2.0 errors have aged out of log stores.
  */
 export const LEGACY_LEAK_KEYS: ReadonlySet<string> = new Set<string>(['Symbol(stderr_maxDepth)']);
+
+/**
+ * Budget for repeat visits of the same (non-circular) object within one normalize/serialize/format walk.
+ * Shared references are expanded in full until this is spent, then shown as `[Repeated reference]`.
+ * Bounds the work a crafted DAG (e.g. `a = [b, b]; b = [c, c]; ...`) can cause. Not configurable.
+ */
+export const MAX_REPEATED_REFERENCES = 1000;

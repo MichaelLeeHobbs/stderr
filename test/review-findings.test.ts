@@ -1,8 +1,8 @@
 // test/review-findings.test.ts
 //
 // Regression tests for the findings from the 2026-10-27 code review.
-// Each test asserts the CORRECT behaviour, so it fails until the finding is fixed.
-// Numbers match the review document.
+// Each test asserts the correct behaviour; all of them failed before the fixes (except #13, a withdrawn finding).
+// Numbers match the review document. Further edge cases for the fixes live in robustness.test.ts.
 import { stderr } from '../src/stderr';
 import { StdError } from '../src/StdError';
 import { tryCatch } from '../src/tryCatch';
@@ -15,8 +15,8 @@ describe('review findings', () => {
             a.push(a, a);
             const json = new StdError('x', { a }).toJSON();
 
-            // Today each level is expanded until maxDepth (2^8 leaves for a 2-wide array;
-            // a 10-wide array exhausts the heap).
+            // Before the fix each level was expanded until maxDepth (2^8 leaves for a 2-wide array;
+            // a 10-wide array exhausted the heap).
             expect(json.a).toEqual(['[Circular]', '[Circular]']);
         });
     });
@@ -85,7 +85,7 @@ describe('review findings', () => {
             };
             const result = tryCatch(() => thenable) as unknown;
 
-            // Today this is a synchronous failure: "Cannot read properties of undefined (reading 'catch')"
+            // Before the fix this was a synchronous failure: "Cannot read properties of undefined (reading 'catch')"
             expect(result).toBeInstanceOf(Promise);
             await expect(result).resolves.toEqual({ ok: true, value: 1, error: null });
         });

@@ -32,6 +32,8 @@ type TryCatchReturn<T, E> = [T] extends [never] ? Result<T, E> : T extends Promi
  *
  * All caught errors are normalized via `stderr()` to StdError.
  * Optionally, provide `mapError` to transform StdError into a custom error type.
+ * If `mapError` itself throws, the Result's error is a StdError (not E) with the original
+ * error as `cause` and the mapError failure as `mapErrorFailure`; tryCatch never throws or rejects.
  *
  * The function automatically detects the input type:
  * - Sync function: Returns `Result<T, E>` immediately.
@@ -92,8 +94,15 @@ export function tryCatch<T, E = StdError>(fn: Promise<T> | (() => T), mapError?:
 
     const fail = (e: unknown): Failure<E> => {
         const normalized = stderr(e);
-        const final = mapError ? mapError(normalized) : (normalized as unknown as E);
-        return { ok: false, value: null, error: final };
+        if (!mapError) return { ok: false, value: null, error: normalized as unknown as E };
+        try {
+            return { ok: false, value: null, error: mapError(normalized) };
+        } catch (mapErr) {
+            // tryCatch always returns a Result, even when mapError itself throws. The error is then a
+            // StdError (NOT E): the original error as `cause`, the mapError failure as `mapErrorFailure`.
+            const mapFailure = new StdError('mapError threw while mapping an error', { cause: normalized, mapErrorFailure: stderr(mapErr) });
+            return { ok: false, value: null, error: mapFailure as unknown as E };
+        }
     };
 
     try {
@@ -101,8 +110,9 @@ export function tryCatch<T, E = StdError>(fn: Promise<T> | (() => T), mapError?:
         const result = typeof fn === 'function' ? (fn as Function)() : fn;
 
         // Check if the result is a Promise
+        // Promise.resolve() adopts any thenable, so a then() that does not return a Promise still works
         if (result && typeof result.then === 'function') {
-            return result.then(succeed).catch(fail) as Promise<Result<T, E>>;
+            return Promise.resolve(result).then(succeed, fail) as Promise<Result<T, E>>;
         }
 
         return succeed(result as T) as Result<T, E>;

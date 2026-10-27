@@ -8,7 +8,9 @@ const config: Config = {
     clearMocks: true,
     collectCoverage: true,
     coverageDirectory: 'coverage',
-    coverageProvider: 'v8',
+    // babel (istanbul) instead of v8: v8 coverage merged across test files was non-deterministic here,
+    // reporting anywhere from ~79% to ~93% branch coverage for the same code on consecutive runs.
+    coverageProvider: 'babel',
     coverageThreshold: {
         global: {
             branches: 95,
