@@ -197,3 +197,56 @@ describe('F7: freeKey() gives up after 100 tries and overwrites', () => {
         expect(Object.keys(e).filter(k => k.startsWith('Symbol(id)'))).toHaveLength(103);
     });
 });
+
+// Follow-up check after F1-F7 were fixed. Found by fuzzing toJSON()/toString() of a StdError built directly.
+describe('G1: toJSON() throws on an array metadata value it cannot read', () => {
+    // F4 guarded serializeValue(), but serializeError() sends array properties straight to serializeArray()
+    const unreadableArray = () =>
+        new Proxy([1, 2], {
+            get: () => {
+                throw new Error('get trap');
+            },
+        });
+
+    it('JSON.stringify() does not throw', () => {
+        const e = new StdError('x');
+        e.data = unreadableArray();
+        expect(JSON.parse(JSON.stringify(e)).data).toBe('[Unreadable value]');
+    });
+});
+
+describe('G2: the StdError constructor throws on an array option it cannot read', () => {
+    // copyPropertiesTo() swallows errors from reading a property, but not from reading the array's length/slice
+    it('new StdError() does not throw and skips the value', () => {
+        const unreadableLength = new Proxy([1, 2, 3], {
+            get: (target, key) => {
+                if (key === 'length') throw new Error('length trap');
+                return Reflect.get(target, key);
+            },
+        });
+        const e = new StdError('x', { data: unreadableLength, code: 'E' });
+        expect(e.code).toBe('E');
+        expect(e).not.toHaveProperty('data');
+    });
+
+    it('stderr() keeps the rest of the error instead of a placeholder', () => {
+        const unreadable = new Proxy([1, 2, 3], {
+            get: () => {
+                throw new Error('get trap');
+            },
+        });
+        const e = stderr({ message: 'kept', data: unreadable });
+        expect(e.message).toBe('kept');
+    });
+});
+
+describe('G3: toJSON() cuts a long errors array of a StdError built directly without a marker', () => {
+    // An errors map over maxProperties gets `_truncated`, and stderr() marks a long errors array; toJSON() of
+    // `new StdError(msg, { errors: [...] })` drops the extra items silently
+    it('marks the truncated errors array', () => {
+        const e = new StdError('x', { errors: [1, 2, 3, 4], maxArrayLength: 2 });
+        const json = e.toJSON();
+        expect(json.errors).toHaveLength(2);
+        expect(json._truncated).toBe('Array length (4) exceeds limit (2), showing first 2');
+    });
+});
