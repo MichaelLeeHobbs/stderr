@@ -7,6 +7,7 @@ import {
     buildExcludeKeys,
     checkDepthLimit,
     copyPropertiesTo,
+    formatDate,
     freeKey,
     getCustomKeys,
     type Limits,
@@ -253,8 +254,6 @@ const createWalkContext = (error: StdError): WalkContext => {
         tracker: new VisitTracker(),
     };
 };
-
-const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
 
 /**
  * Reads `name`/`message` as a string. Errors not built by stderr() can hold anything there

@@ -3,7 +3,7 @@
 // depth-limited recursion, circular reference detection, and optional subclassing.
 
 import { StdError } from './StdError';
-import type { ErrorRecord, ErrorShape } from './types';
+import type { ErrorRecord, ErrorShape, Primitive } from './types';
 import { isArray, isErrorInstance, isErrorLike, isFunction, isInstanceOf, isObject, isPrimitive, isString, isSymbol } from './types';
 import {
     addMarker,
@@ -11,6 +11,7 @@ import {
     checkDepthLimit,
     copyPropertiesTo,
     CRITICAL_SECURITY_KEYS,
+    formatDate,
     freeKey,
     getCustomKeys,
     isMarkerKey,
@@ -31,15 +32,13 @@ export interface NormalizeOptions {
     maxArrayLength?: number;
 }
 
-type NormalizeOptionsInternal = Limits;
-
 // Backing values for the validated stderr.maxDepth / maxProperties / maxArrayLength accessors
 const defaults: Limits = { maxDepth: MAX_DEPTH, maxProperties: MAX_PROPERTIES, maxArrayLength: MAX_ARRAY_LENGTH };
 
-const normalizeProperty = (v: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown =>
+const normalizeProperty = (v: unknown, opts: Limits, depth: number, tracker: VisitTracker): unknown =>
     !isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, tracker) : isSymbol(v) ? v.toString() : v;
 
-const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown => {
+const normalizeUnknown = (input: unknown, opts: Limits, depth: number, tracker: VisitTracker): unknown => {
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
     if (depthCheck) return depthCheck;
     if (isSymbol(input)) return input.toString();
@@ -54,7 +53,7 @@ const normalizeUnknown = (input: unknown, opts: NormalizeOptionsInternal, depth:
     }
 };
 
-const normalizeObject = (input: object, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown => {
+const normalizeObject = (input: object, opts: Limits, depth: number, tracker: VisitTracker): unknown => {
     if (isArray(input)) {
         // For arrays, just return the bounded slice - truncation metadata added by caller if needed
         return input.slice(0, opts.maxArrayLength).map(e => normalizeUnknown(e, opts, depth + 1, tracker));
@@ -87,34 +86,85 @@ const normalizeObject = (input: object, opts: NormalizeOptionsInternal, depth: n
         });
         return normalized;
     }
-    /* node:coverage ignore next 2 - should be unreachable */
+    // A function (e.g. an array element) becomes its tag
     return unknownToString(input);
 };
 
 /** An error made up from a non-error value has no origin: drop the stack that points into this file. */
-const withoutStack = <T extends Error>(e: T): T => {
+const errorFromPrimitive = (value: Primitive): StdError => {
+    const e = primitiveToError(value);
     delete e.stack;
     return e;
 };
 
-const convertToErrorShape = (value: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): ErrorShape => {
+const convertToErrorShape = (value: unknown, opts: Limits, depth: number, tracker: VisitTracker): ErrorShape => {
     const normalized = normalizeUnknown(value, opts, depth + 1, tracker);
     if (isErrorInstance(normalized)) return normalized as ErrorShape;
-    if (isPrimitive(normalized)) return withoutStack(primitiveToError(normalized));
+    if (isPrimitive(normalized)) return errorFromPrimitive(normalized);
     // An array in an error slot is a list of errors, as for stderr([...])
     if (isArray(normalized)) return aggregateToError(normalized, opts, depth + 1, tracker);
-    if (isInstanceOf(normalized, Date)) {
-        return withoutStack(primitiveToError(Number.isNaN(normalized.getTime()) ? 'Invalid Date' : normalized.toISOString()));
-    }
-    if (isObject(normalized)) return normalizeObjectToError(normalized as ErrorRecord, opts, depth + 1, tracker);
-    /* node:coverage ignore next - should be unreachable */
-    return new StdError(unknownToString(value) ?? 'Unknown', { maxDepth: opts.maxDepth });
+    if (isInstanceOf(normalized, Date)) return errorFromPrimitive(formatDate(normalized));
+    // Everything else normalizeUnknown returns is an object (Map, Set or plain)
+    return normalizeObjectToError(normalized as ErrorRecord, opts, depth + 1, tracker);
 };
 
-const aggregateToError = (errors: unknown[], opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): ErrorShape =>
+const aggregateToError = (errors: unknown[], opts: Limits, depth: number, tracker: VisitTracker): ErrorShape =>
     normalizeObjectToError({ errors, name: 'AggregateError', message: 'AggregateError' }, opts, depth, tracker);
 
-const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): ErrorShape => {
+interface NormalizedErrors {
+    errors: ErrorShape[] | ErrorRecord;
+    /** A single non-list, non-map value was wrapped in an array, AggregateError style */
+    single?: boolean;
+    /** Array truncation message, added to the error after its properties are copied */
+    truncated?: string;
+}
+
+/** Normalizes an `errors` field: a list (Array or Set), a map keyed by field (Map or plain object), or a single error. */
+const normalizeErrors = (errors: unknown, opts: Limits, depth: number, tracker: VisitTracker): NormalizedErrors => {
+    const toError = (value: unknown) => convertToErrorShape(value, opts, depth, tracker);
+
+    if (isInstanceOf(errors, Map)) {
+        const normObj: ErrorRecord = {};
+        const entries = Array.from(errors.entries());
+        for (const [key, value] of entries.slice(0, opts.maxProperties)) {
+            const keyStr = unknownToString(key);
+            // Same keys as a plain-object map drops: `normObj['__proto__'] = ...` would replace its prototype
+            if (CRITICAL_SECURITY_KEYS.has(keyStr) || LEGACY_LEAK_KEYS.has(keyStr)) continue;
+            normObj[freeKey(normObj, keyStr)] = toError(value);
+        }
+        if (entries.length > opts.maxProperties) {
+            addMarker(normObj, '_truncated', `Property count (${entries.length}) exceeds limit (${opts.maxProperties}), showing first ${opts.maxProperties}`);
+        }
+        return { errors: normObj };
+    }
+
+    const list = isInstanceOf(errors, Set) ? Array.from(errors.values()) : isArray(errors) ? errors : undefined;
+    if (list) {
+        const truncated =
+            list.length > opts.maxArrayLength
+                ? `Array length (${list.length}) exceeds limit (${opts.maxArrayLength}), showing first ${opts.maxArrayLength}`
+                : undefined;
+        return { errors: list.slice(0, opts.maxArrayLength).map(toError), truncated };
+    }
+
+    // isErrorLike, not isErrorShaped: a field called `name` or `message` ({ name: 'required', email: 'invalid' })
+    // does not make the map an error.
+    if (isObject(errors) && !isErrorLike(errors)) {
+        const normObj: ErrorRecord = {};
+        const { keys, truncated } = boundKeys(getCustomKeys(errors, { includeNonEnumerable: true, excludeKeys: new Set() }), opts.maxProperties);
+        for (const key of keys) {
+            const value = safeGet(errors, key);
+            // A carried-over truncation marker stays a string
+            normObj[key.toString()] = isMarkerKey(key) && isString(value) ? value : toError(value);
+        }
+        if (truncated) addMarker(normObj, '_truncated', truncated);
+        return { errors: normObj };
+    }
+
+    return { errors: [toError(errors)], single: true };
+};
+
+const normalizeObjectToError = (input: ErrorRecord, opts: Limits, depth: number, tracker: VisitTracker): ErrorShape => {
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
     /* node:coverage ignore next 1 - failsafe, will always be caught before this point */
     if (depthCheck) return new StdError(depthCheck, { maxDepth: opts.maxDepth });
@@ -126,82 +176,19 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
     const message = safeGet(input, 'message');
     const stack = safeGet(input, 'stack');
 
-    // Only undefined/null mean "no cause": 0, '' and false are real values
+    // Only undefined/null mean "no cause" or "no errors": 0, '' and false are real values
     const normalizedCause = cause !== undefined && cause !== null ? convertToErrorShape(cause, opts, depth, tracker) : undefined;
+    const normalized = errors !== undefined && errors !== null ? normalizeErrors(errors, opts, depth, tracker) : undefined;
 
-    let normalizedErrors: ErrorShape[] | ErrorRecord | undefined;
-    let isSingleErrorAggregate = false;
-    let truncationInfo: string | undefined;
-
-    // Only undefined/null mean "no errors", as for cause
-    if (errors !== undefined && errors !== null) {
-        // A Set of errors is a list, like an array
-        const errorList = isInstanceOf(errors, Set) ? Array.from(errors.values()) : isArray(errors) ? errors : undefined;
-        if (isInstanceOf(errors, Map)) {
-            // Map of errors keyed by field: same output as a plain-object map
-            const normObj: ErrorRecord = {};
-            const entries = Array.from(errors.entries());
-            for (const [key, value] of entries.slice(0, opts.maxProperties)) {
-                const keyStr = unknownToString(key);
-                // Same keys as a plain-object map drops: `normObj['__proto__'] = ...` would replace its prototype
-                if (CRITICAL_SECURITY_KEYS.has(keyStr) || LEGACY_LEAK_KEYS.has(keyStr)) continue;
-                normObj[freeKey(normObj, keyStr)] = convertToErrorShape(value, opts, depth, tracker);
-            }
-            if (entries.length > opts.maxProperties) {
-                addMarker(
-                    normObj,
-                    '_truncated',
-                    `Property count (${entries.length}) exceeds limit (${opts.maxProperties}), showing first ${opts.maxProperties}`
-                );
-            }
-            normalizedErrors = normObj;
-        } else if (errorList) {
-            const originalLength = errorList.length;
-            const bounded = errorList.slice(0, opts.maxArrayLength);
-            normalizedErrors = bounded.map(e => convertToErrorShape(e, opts, depth, tracker));
-
-            // Track truncation info
-            if (originalLength > opts.maxArrayLength) {
-                truncationInfo = `Array length (${originalLength}) exceeds limit (${opts.maxArrayLength}), showing first ${opts.maxArrayLength}`;
-            }
-        } else if (isObject(errors) && !isErrorLike(errors)) {
-            // Map of errors keyed by field. isErrorLike, not isErrorShaped: a field called `name` or `message`
-            // ({ name: 'required', email: 'invalid' }) does not make the map an error.
-            const errObj = errors as ErrorRecord;
-            const normObj: ErrorRecord = {};
-            const { keys, truncated } = boundKeys(getCustomKeys(errObj, { includeNonEnumerable: true, excludeKeys: new Set() }), opts.maxProperties);
-
-            for (const key of keys) {
-                const value = safeGet(errObj, key);
-                // A carried-over truncation marker stays a string
-                normObj[key.toString()] = isMarkerKey(key) && isString(value) ? value : convertToErrorShape(value, opts, depth, tracker);
-            }
-
-            if (truncated) addMarker(normObj, '_truncated', truncated);
-            normalizedErrors = normObj;
-        } else {
-            // Single error treated as aggregate (Error instance or other object)
-            isSingleErrorAggregate = true;
-            normalizedErrors = [convertToErrorShape(errors, opts, depth, tracker)];
-        }
-    }
-
-    const finalName = name ? unknownToString(name) : isSingleErrorAggregate ? 'AggregateError' : 'Error';
-
-    // A single non-array `errors` value only supplies a default; it never replaces the input's own message
-    let finalMessage = isSingleErrorAggregate ? 'AggregateError' : '';
+    // A single non-array `errors` value only supplies defaults; it never replaces the input's own name or message
+    const defaultText = normalized?.single ? 'AggregateError' : undefined;
+    const finalName = name ? unknownToString(name) : (defaultText ?? 'Error');
+    let finalMessage = defaultText ?? '';
     if (message !== undefined && message !== null) {
         finalMessage = isObject(message) ? unknownToString(normalizeUnknown(message, opts, depth + 1, tracker)) : unknownToString(message);
     }
 
-    const e = new StdError(finalMessage, {
-        name: finalName,
-        maxDepth: opts.maxDepth,
-        maxProperties: opts.maxProperties,
-        maxArrayLength: opts.maxArrayLength,
-        cause: normalizedCause,
-        errors: normalizedErrors,
-    });
+    const e = new StdError(finalMessage, { name: finalName, ...opts, cause: normalizedCause, errors: normalized?.errors });
 
     // Keep the original stack: a fresh one would point into this file instead of the error's origin.
     // No original stack means there is no origin to show; stderr() gives the root the caller's stack.
@@ -217,7 +204,7 @@ const normalizeObjectToError = (input: ErrorRecord, opts: NormalizeOptionsIntern
     });
 
     // Added after the copy so a user property named `_truncated` cannot overwrite it
-    if (truncationInfo) addMarker(e, '_truncated', truncationInfo);
+    if (normalized?.truncated) addMarker(e, '_truncated', normalized.truncated);
 
     return e;
 };
@@ -234,7 +221,7 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
 
     // Resolve per-field with ??, not a spread: `{...options}` copies an explicit
     // `undefined` over the default, which would leave the recursion limits unset.
-    const opts: NormalizeOptionsInternal = {
+    const opts: Limits = {
         maxDepth: options.maxDepth ?? defaults.maxDepth,
         maxProperties: options.maxProperties ?? defaults.maxProperties,
         maxArrayLength: options.maxArrayLength ?? defaults.maxArrayLength,
@@ -253,11 +240,11 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
     return result;
 };
 
-const normalizeRoot = (input: unknown, opts: NormalizeOptionsInternal, tracker: VisitTracker): StdError => {
-    if (isPrimitive(input)) return withoutStack(primitiveToError(input));
+const normalizeRoot = (input: unknown, opts: Limits, tracker: VisitTracker): StdError => {
+    if (isPrimitive(input)) return errorFromPrimitive(input);
 
     tracker.hold(input as object);
-    if (isFunction(input)) return withoutStack(primitiveToError(unknownToString(input)));
+    if (isFunction(input)) return errorFromPrimitive(unknownToString(input));
     if (isArray(input)) return aggregateToError(input, opts, 0, tracker) as StdError;
     return normalizeObjectToError(input as ErrorRecord, opts, 0, tracker) as StdError;
 };

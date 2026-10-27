@@ -226,6 +226,8 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
     });
 }
 
+export const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
+
 export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): string | null {
     return depth >= maxDepth ? `${indent}[Max depth of ${maxDepth} reached]` : null;
 }
