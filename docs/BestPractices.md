@@ -101,11 +101,13 @@ async function processUser(userId: string): Promise<void> {
 
 // ✅ ALSO GOOD: Intentional fire-and-forget with explicit handling
 function processUserInBackground(userId: string): void {
-    void tryCatch(updateUser(userId)).then(result => {
+    void (async () => {
+        // await, not .then(): a function that throws before returning its Promise gives a plain Result
+        const result = await tryCatch(() => updateUser(userId));
         if (!result.ok) {
             logger.error('Background update failed', result.error);
         }
-    });
+    })();
 }
 ```
 

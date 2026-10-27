@@ -59,7 +59,7 @@ describe('stderr', () => {
 
         it('handles various other built-in object types gracefully (converting to Error)', () => {
             const cases: [unknown, string, string][] = [
-                [new Date(0), '', 'Error'],
+                [new Date(0), '1970-01-01T00:00:00.000Z', 'Error'],
                 [new Map([['a', 1]]), '', 'Error'],
                 [new Set([1]), '', 'Error'],
                 [new WeakMap(), '', 'Error'],
