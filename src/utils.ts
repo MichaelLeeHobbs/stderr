@@ -132,9 +132,19 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
 
         if (skipFunctions && typeof value === 'function') continue;
 
-        if (maxArrayLength !== undefined && isArray(value) && value.length > maxArrayLength) {
-            markers.push([`_truncated_${String(key)}`, `Array length (${value.length}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`]);
-            value = value.slice(0, maxArrayLength);
+        if (maxArrayLength !== undefined && isArray(value)) {
+            const array = value;
+            let length: number;
+            try {
+                length = array.length;
+                if (length > maxArrayLength) value = array.slice(0, maxArrayLength);
+            } catch {
+                // An array Proxy whose traps throw: as unreadable as a throwing getter
+                continue;
+            }
+            if (length > maxArrayLength) {
+                markers.push([`_truncated_${String(key)}`, `Array length (${length}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`]);
+            }
         }
 
         // Maps and Sets are cut to maxArrayLength entries when normalized or serialized: mark it like an array
