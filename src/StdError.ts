@@ -7,22 +7,17 @@ import {
     buildExcludeKeys,
     checkDepthLimit,
     copyPropertiesTo,
+    formatDate,
     freeKey,
     getCustomKeys,
-    LIMIT_RANGES,
+    type Limits,
     safeGet,
+    setLimit,
     unknownToString,
-    validateLimit,
     validateLimits,
     VisitTracker,
 } from './utils';
 import { MAX_DEPTH, MAX_ARRAY_LENGTH, MAX_PROPERTIES, MAX_INLINE_ITEMS } from './constants';
-
-interface InstanceLimits {
-    maxDepth?: number;
-    maxProperties?: number;
-    maxArrayLength?: number;
-}
 
 /**
  * Per-instance limits are stored OFF-instance in a module-local side table.
@@ -32,12 +27,10 @@ interface InstanceLimits {
  * passes includeNonEnumerable: true). On a StdError, "own property" IS "observable output"
  * by construction. A Symbol is a collision-avoidance device, not a privacy device — see ADR-007.
  */
-const limitsRegistry = new WeakMap<StdError, InstanceLimits>();
+const limitsRegistry = new WeakMap<StdError, Partial<Limits>>();
 
 // Backing values for the validated StdError.default* accessors
-let defaultMaxDepth = MAX_DEPTH;
-let defaultMaxProperties = MAX_PROPERTIES;
-let defaultMaxArrayLength = MAX_ARRAY_LENGTH;
+const defaults: Limits = { maxDepth: MAX_DEPTH, maxProperties: MAX_PROPERTIES, maxArrayLength: MAX_ARRAY_LENGTH };
 
 /** State for one toString()/toJSON() walk. */
 interface WalkContext {
@@ -97,12 +90,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError, as for `stderr.maxDepth`.
      */
     static get defaultMaxDepth(): number {
-        return defaultMaxDepth;
+        return defaults.maxDepth;
     }
 
     static set defaultMaxDepth(value: number) {
-        validateLimit('maxDepth', value, ...LIMIT_RANGES.maxDepth);
-        defaultMaxDepth = value;
+        setLimit(defaults, 'maxDepth', value);
     }
 
     /**
@@ -110,12 +102,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
     static get defaultMaxProperties(): number {
-        return defaultMaxProperties;
+        return defaults.maxProperties;
     }
 
     static set defaultMaxProperties(value: number) {
-        validateLimit('maxProperties', value, ...LIMIT_RANGES.maxProperties);
-        defaultMaxProperties = value;
+        setLimit(defaults, 'maxProperties', value);
     }
 
     /**
@@ -123,12 +114,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
     static get defaultMaxArrayLength(): number {
-        return defaultMaxArrayLength;
+        return defaults.maxArrayLength;
     }
 
     static set defaultMaxArrayLength(value: number) {
-        validateLimit('maxArrayLength', value, ...LIMIT_RANGES.maxArrayLength);
-        defaultMaxArrayLength = value;
+        setLimit(defaults, 'maxArrayLength', value);
     }
 
     /**
@@ -164,42 +154,26 @@ export class StdError extends Error implements ErrorShape {
         if (options) validateLimits(options);
 
         super(message);
-
-        // Set name
         this.name = (options?.name as string) || 'Error';
+        if (!options) return;
 
-        // Set cause if provided and supported
-        if (options?.cause !== undefined) {
-            this.cause = options.cause;
-        }
-
-        // Set errors if provided
-        if (options?.errors !== undefined) {
-            this.errors = options.errors;
-        }
+        if (options.cause !== undefined) this.cause = options.cause;
+        if (options.errors !== undefined) this.errors = options.errors;
 
         // Limits are stored off-instance; never own properties — see ADR-007
-        if (options?.maxDepth !== undefined || options?.maxProperties !== undefined || options?.maxArrayLength !== undefined) {
-            limitsRegistry.set(this, { maxDepth: options.maxDepth, maxProperties: options.maxProperties, maxArrayLength: options.maxArrayLength });
+        const { maxDepth, maxProperties, maxArrayLength } = options;
+        if (maxDepth !== undefined || maxProperties !== undefined || maxArrayLength !== undefined) {
+            limitsRegistry.set(this, { maxDepth, maxProperties, maxArrayLength });
         }
 
-        // Copy any additional properties
-        if (options) {
-            // Build comprehensive exclude keys by walking prototype chain
-            // Always includes critical security keys (prototype, __proto__, constructor)
-            const excludeKeys = buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth', 'maxProperties', 'maxArrayLength']);
-
-            // Use unified property copy utility
-            // Skip functions - this is a logging library, not a debugging dump
-            // Don't convert symbol keys - keep them as symbols
-            copyPropertiesTo(options, this, {
-                excludeKeys,
-                maxProperties: options.maxProperties ?? StdError.defaultMaxProperties,
-                maxArrayLength: options.maxArrayLength ?? StdError.defaultMaxArrayLength,
-                skipFunctions: true,
-                convertSymbolKeys: false,
-            });
-        }
+        // Everything else is a custom property. Excluding every key on the prototype chain also keeps out
+        // the critical security keys (prototype, __proto__, constructor). Functions are skipped (this is a
+        // logging library, not a debugging dump) and symbol keys stay symbols.
+        copyPropertiesTo(options, this, {
+            excludeKeys: buildExcludeKeys(this, ['cause', 'errors', 'name', 'message', 'maxDepth', 'maxProperties', 'maxArrayLength']),
+            maxProperties: maxProperties ?? defaults.maxProperties,
+            maxArrayLength: maxArrayLength ?? defaults.maxArrayLength,
+        });
     }
 
     /**
@@ -258,14 +232,12 @@ export class StdError extends Error implements ErrorShape {
 const createWalkContext = (error: StdError): WalkContext => {
     const limits = limitsRegistry.get(error);
     return {
-        maxDepth: limits?.maxDepth ?? StdError.defaultMaxDepth,
-        maxProperties: limits?.maxProperties ?? StdError.defaultMaxProperties,
-        maxArrayLength: limits?.maxArrayLength ?? StdError.defaultMaxArrayLength,
+        maxDepth: limits?.maxDepth ?? defaults.maxDepth,
+        maxProperties: limits?.maxProperties ?? defaults.maxProperties,
+        maxArrayLength: limits?.maxArrayLength ?? defaults.maxArrayLength,
         tracker: new VisitTracker(),
     };
 };
-
-const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
 
 /**
  * Reads `name`/`message` as a string. Errors not built by stderr() can hold anything there
@@ -541,8 +513,7 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
 const serializeValueUnguarded = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown => {
     // Primitives (JSON.stringify cannot handle bigint, so it becomes a string)
     if (value === null || value === undefined) return value;
-    if (isSymbol(value)) return value.toString();
-    if (typeof value === 'bigint') return value.toString();
+    if (isSymbol(value) || typeof value === 'bigint') return value.toString();
     if (isPrimitive(value)) return value;
 
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);

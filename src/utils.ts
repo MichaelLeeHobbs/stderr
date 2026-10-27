@@ -1,6 +1,6 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, Primitive } from './types';
+import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, ownKeysOrEmpty, Primitive } from './types';
 import { LEGACY_LEAK_KEYS, MAX_REPEATED_REFERENCES } from './constants';
 
 /**
@@ -14,10 +14,7 @@ export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 
 export const CRITICAL_SECURITY_KEYS = new Set<string>(['prototype', '__proto__', 'constructor']);
 
 export const STANDARD_OBJECT_KEYS = new Set<string>([
-    'toString',
     'toJSON',
-    'valueOf',
-    'toLocaleString',
     ...Object.getOwnPropertyNames(Object.prototype),
     ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
 ]);
@@ -87,24 +84,33 @@ export function boundKeys<K extends string | symbol>(keys: K[], limit: number): 
     };
 }
 
-/** Validates a numeric limit option. undefined means "not set". */
-export function validateLimit(name: string, value: number | undefined, min: number, max: number): void {
-    if (value === undefined) return;
-    if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value === 'number' ? value : typeof value}`);
-    if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
-}
-
 /** Valid ranges for the three limits, shared by stderr() and StdError. */
-export const LIMIT_RANGES = {
+const LIMIT_RANGES = {
     maxDepth: [1, 1000],
     maxProperties: [1, 100000],
     maxArrayLength: [1, 1000000],
 } as const;
 
-export function validateLimits(limits: { maxDepth?: number; maxProperties?: number; maxArrayLength?: number }): void {
-    validateLimit('maxDepth', limits.maxDepth, ...LIMIT_RANGES.maxDepth);
-    validateLimit('maxProperties', limits.maxProperties, ...LIMIT_RANGES.maxProperties);
-    validateLimit('maxArrayLength', limits.maxArrayLength, ...LIMIT_RANGES.maxArrayLength);
+export type Limits = Record<keyof typeof LIMIT_RANGES, number>;
+
+export const LIMIT_NAMES = Object.keys(LIMIT_RANGES) as (keyof Limits)[];
+
+/** Validates a numeric limit option. undefined means "not set". */
+function validateLimit(name: keyof Limits, value: number | undefined): void {
+    if (value === undefined) return;
+    const [min, max] = LIMIT_RANGES[name];
+    if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value === 'number' ? value : typeof value}`);
+    if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
+}
+
+export function validateLimits(limits: Partial<Limits>): void {
+    for (const name of LIMIT_NAMES) validateLimit(name, limits[name]);
+}
+
+/** Validates `value` and stores it as `store[name]`. */
+export function setLimit(store: Limits, name: keyof Limits, value: number): void {
+    validateLimit(name, value);
+    store[name] = value;
 }
 
 /**
@@ -123,13 +129,8 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
     if (truncated) markers.push(['_truncated', truncated]);
 
     for (const key of boundedKeys) {
-        let value: unknown;
-        try {
-            value = (source as Record<string | symbol, unknown>)[key];
-        } catch {
-            continue;
-        }
-
+        // A throwing getter reads as undefined, and undefined values are skipped below
+        let value = safeGet(source, key);
         if (skipFunctions && typeof value === 'function') continue;
 
         if (maxArrayLength !== undefined && isArray(value)) {
@@ -206,15 +207,7 @@ export interface GetCustomKeysOptions {
 export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): (string | symbol)[] {
     const { includeNonEnumerable = false, excludeKeys = DEFAULT_EXCLUDE_KEYS } = options;
 
-    let ownKeys: (string | symbol)[];
-    try {
-        ownKeys = Reflect.ownKeys(obj);
-    } catch {
-        // Revoked Proxy or a throwing ownKeys trap: nothing readable
-        return [];
-    }
-
-    return ownKeys.filter(key => {
+    return ownKeysOrEmpty(obj).filter(key => {
         const keyStr = key.toString();
         // LEGACY_LEAK_KEYS sits beside CRITICAL_SECURITY_KEYS, NOT inside excludeKeys, because
         // callers pass `excludeKeys: new Set()` (stderr.ts:46, stderr.ts:95) and would opt out.
@@ -230,8 +223,10 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
     });
 }
 
-export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): string | null {
-    return depth >= maxDepth ? `${indent}[Max depth of ${maxDepth} reached]` : null;
+export const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
+
+export function checkDepthLimit(depth: number, maxDepth: number): string | null {
+    return depth >= maxDepth ? `[Max depth of ${maxDepth} reached]` : null;
 }
 
 /**
