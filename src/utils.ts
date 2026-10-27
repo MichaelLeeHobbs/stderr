@@ -87,24 +87,33 @@ export function boundKeys<K extends string | symbol>(keys: K[], limit: number): 
     };
 }
 
-/** Validates a numeric limit option. undefined means "not set". */
-export function validateLimit(name: string, value: number | undefined, min: number, max: number): void {
-    if (value === undefined) return;
-    if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value === 'number' ? value : typeof value}`);
-    if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
-}
-
 /** Valid ranges for the three limits, shared by stderr() and StdError. */
-export const LIMIT_RANGES = {
+const LIMIT_RANGES = {
     maxDepth: [1, 1000],
     maxProperties: [1, 100000],
     maxArrayLength: [1, 1000000],
 } as const;
 
-export function validateLimits(limits: { maxDepth?: number; maxProperties?: number; maxArrayLength?: number }): void {
-    validateLimit('maxDepth', limits.maxDepth, ...LIMIT_RANGES.maxDepth);
-    validateLimit('maxProperties', limits.maxProperties, ...LIMIT_RANGES.maxProperties);
-    validateLimit('maxArrayLength', limits.maxArrayLength, ...LIMIT_RANGES.maxArrayLength);
+export type Limits = Record<keyof typeof LIMIT_RANGES, number>;
+
+export const LIMIT_NAMES = Object.keys(LIMIT_RANGES) as (keyof Limits)[];
+
+/** Validates a numeric limit option. undefined means "not set". */
+function validateLimit(name: keyof Limits, value: number | undefined): void {
+    if (value === undefined) return;
+    const [min, max] = LIMIT_RANGES[name];
+    if (!Number.isInteger(value)) throw new TypeError(`${name} must be an integer, got: ${typeof value === 'number' ? value : typeof value}`);
+    if (value < min || value > max) throw new RangeError(`${name} must be between ${min} and ${max}, got: ${value}`);
+}
+
+export function validateLimits(limits: Partial<Limits>): void {
+    for (const name of LIMIT_NAMES) validateLimit(name, limits[name]);
+}
+
+/** Validates `value` and stores it as `store[name]`. */
+export function setLimit(store: Limits, name: keyof Limits, value: number): void {
+    validateLimit(name, value);
+    store[name] = value;
 }
 
 /**

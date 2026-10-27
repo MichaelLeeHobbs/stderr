@@ -14,11 +14,12 @@ import {
     freeKey,
     getCustomKeys,
     isMarkerKey,
-    LIMIT_RANGES,
+    LIMIT_NAMES,
+    type Limits,
     primitiveToError,
     safeGet,
+    setLimit,
     unknownToString,
-    validateLimit,
     validateLimits,
     VisitTracker,
 } from './utils';
@@ -30,11 +31,10 @@ export interface NormalizeOptions {
     maxArrayLength?: number;
 }
 
-type NormalizeOptionsInternal = Required<NormalizeOptions>;
+type NormalizeOptionsInternal = Limits;
 
-let _maxDepth = MAX_DEPTH;
-let _maxProperties = MAX_PROPERTIES;
-let _maxArrayLength = MAX_ARRAY_LENGTH;
+// Backing values for the validated stderr.maxDepth / maxProperties / maxArrayLength accessors
+const defaults: Limits = { maxDepth: MAX_DEPTH, maxProperties: MAX_PROPERTIES, maxArrayLength: MAX_ARRAY_LENGTH };
 
 const normalizeProperty = (v: unknown, opts: NormalizeOptionsInternal, depth: number, tracker: VisitTracker): unknown =>
     !isPrimitive(v) ? normalizeUnknown(v, opts, depth + 1, tracker) : isSymbol(v) ? v.toString() : v;
@@ -235,9 +235,9 @@ const stderr = (input: unknown, options: NormalizeOptions = {}): StdError => {
     // Resolve per-field with ??, not a spread: `{...options}` copies an explicit
     // `undefined` over the default, which would leave the recursion limits unset.
     const opts: NormalizeOptionsInternal = {
-        maxDepth: options.maxDepth ?? _maxDepth,
-        maxProperties: options.maxProperties ?? _maxProperties,
-        maxArrayLength: options.maxArrayLength ?? _maxArrayLength,
+        maxDepth: options.maxDepth ?? defaults.maxDepth,
+        maxProperties: options.maxProperties ?? defaults.maxProperties,
+        maxArrayLength: options.maxArrayLength ?? defaults.maxArrayLength,
     };
     const tracker = new VisitTracker();
 
@@ -262,40 +262,13 @@ const normalizeRoot = (input: unknown, opts: NormalizeOptionsInternal, tracker: 
     return normalizeObjectToError(input as ErrorRecord, opts, 0, tracker) as StdError;
 };
 
-Object.defineProperty(stderr, 'maxDepth', {
-    /* node:coverage ignore next */
-    get: () => _maxDepth,
-    /* node:coverage ignore next 4 */
-    set: (value: number) => {
-        validateLimit('maxDepth', value, ...LIMIT_RANGES.maxDepth);
-        _maxDepth = value;
-    },
-    enumerable: true,
-    configurable: false,
-});
-
-Object.defineProperty(stderr, 'maxProperties', {
-    /* node:coverage ignore next */
-    get: () => _maxProperties,
-    /* node:coverage ignore next 4 */
-    set: (value: number) => {
-        validateLimit('maxProperties', value, ...LIMIT_RANGES.maxProperties);
-        _maxProperties = value;
-    },
-    enumerable: true,
-    configurable: false,
-});
-
-Object.defineProperty(stderr, 'maxArrayLength', {
-    /* node:coverage ignore next */
-    get: () => _maxArrayLength,
-    /* node:coverage ignore next 4 */
-    set: (value: number) => {
-        validateLimit('maxArrayLength', value, ...LIMIT_RANGES.maxArrayLength);
-        _maxArrayLength = value;
-    },
-    enumerable: true,
-    configurable: false,
-});
+for (const name of LIMIT_NAMES) {
+    Object.defineProperty(stderr, name, {
+        get: () => defaults[name],
+        set: (value: number) => setLimit(defaults, name, value),
+        enumerable: true,
+        configurable: false,
+    });
+}
 
 export { stderr };

@@ -9,20 +9,14 @@ import {
     copyPropertiesTo,
     freeKey,
     getCustomKeys,
-    LIMIT_RANGES,
+    type Limits,
     safeGet,
+    setLimit,
     unknownToString,
-    validateLimit,
     validateLimits,
     VisitTracker,
 } from './utils';
 import { MAX_DEPTH, MAX_ARRAY_LENGTH, MAX_PROPERTIES, MAX_INLINE_ITEMS } from './constants';
-
-interface InstanceLimits {
-    maxDepth?: number;
-    maxProperties?: number;
-    maxArrayLength?: number;
-}
 
 /**
  * Per-instance limits are stored OFF-instance in a module-local side table.
@@ -32,12 +26,10 @@ interface InstanceLimits {
  * passes includeNonEnumerable: true). On a StdError, "own property" IS "observable output"
  * by construction. A Symbol is a collision-avoidance device, not a privacy device — see ADR-007.
  */
-const limitsRegistry = new WeakMap<StdError, InstanceLimits>();
+const limitsRegistry = new WeakMap<StdError, Partial<Limits>>();
 
 // Backing values for the validated StdError.default* accessors
-let defaultMaxDepth = MAX_DEPTH;
-let defaultMaxProperties = MAX_PROPERTIES;
-let defaultMaxArrayLength = MAX_ARRAY_LENGTH;
+const defaults: Limits = { maxDepth: MAX_DEPTH, maxProperties: MAX_PROPERTIES, maxArrayLength: MAX_ARRAY_LENGTH };
 
 /** State for one toString()/toJSON() walk. */
 interface WalkContext {
@@ -97,12 +89,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError, as for `stderr.maxDepth`.
      */
     static get defaultMaxDepth(): number {
-        return defaultMaxDepth;
+        return defaults.maxDepth;
     }
 
     static set defaultMaxDepth(value: number) {
-        validateLimit('maxDepth', value, ...LIMIT_RANGES.maxDepth);
-        defaultMaxDepth = value;
+        setLimit(defaults, 'maxDepth', value);
     }
 
     /**
@@ -110,12 +101,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
     static get defaultMaxProperties(): number {
-        return defaultMaxProperties;
+        return defaults.maxProperties;
     }
 
     static set defaultMaxProperties(value: number) {
-        validateLimit('maxProperties', value, ...LIMIT_RANGES.maxProperties);
-        defaultMaxProperties = value;
+        setLimit(defaults, 'maxProperties', value);
     }
 
     /**
@@ -123,12 +113,11 @@ export class StdError extends Error implements ErrorShape {
      * Can be overridden per instance. Invalid values throw TypeError/RangeError.
      */
     static get defaultMaxArrayLength(): number {
-        return defaultMaxArrayLength;
+        return defaults.maxArrayLength;
     }
 
     static set defaultMaxArrayLength(value: number) {
-        validateLimit('maxArrayLength', value, ...LIMIT_RANGES.maxArrayLength);
-        defaultMaxArrayLength = value;
+        setLimit(defaults, 'maxArrayLength', value);
     }
 
     /**
