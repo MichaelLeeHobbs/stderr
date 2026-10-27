@@ -14,10 +14,7 @@ export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 
 export const CRITICAL_SECURITY_KEYS = new Set<string>(['prototype', '__proto__', 'constructor']);
 
 export const STANDARD_OBJECT_KEYS = new Set<string>([
-    'toString',
     'toJSON',
-    'valueOf',
-    'toLocaleString',
     ...Object.getOwnPropertyNames(Object.prototype),
     ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
 ]);
@@ -228,8 +225,8 @@ export function getCustomKeys(obj: object, options: GetCustomKeysOptions = {}): 
 
 export const formatDate = (date: Date): string => (Number.isNaN(date.getTime()) ? 'Invalid Date' : date.toISOString());
 
-export function checkDepthLimit(depth: number, maxDepth: number, indent = ''): string | null {
-    return depth >= maxDepth ? `${indent}[Max depth of ${maxDepth} reached]` : null;
+export function checkDepthLimit(depth: number, maxDepth: number): string | null {
+    return depth >= maxDepth ? `[Max depth of ${maxDepth} reached]` : null;
 }
 
 /**
