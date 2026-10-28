@@ -145,7 +145,8 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
         }
 
         // Maps and Sets are cut to maxArrayLength entries when normalized or serialized: mark it like an array
-        const cut = maxArrayLength !== undefined && !isArray(value) ? collectionTruncation(value, maxArrayLength) : undefined;
+        // (an array was cut and marked above)
+        const cut = collectionTruncation(value, maxArrayLength ?? Infinity);
         if (cut) markers.push([`_truncated_${String(key)}`, cut]);
 
         if (normalizeValue) {
