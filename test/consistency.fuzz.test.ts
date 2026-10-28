@@ -64,6 +64,23 @@ describe('toString() and toJSON() keep the same values', () => {
         );
     });
 
+    it('toString() shows nothing that toJSON() leaves out under small limits (it may summarize more)', () => {
+        const smallArb = fc.record({
+            input: inputArb(false),
+            maxProperties: fc.integer({ min: 1, max: 3 }),
+            maxArrayLength: fc.integer({ min: 1, max: 3 }),
+        });
+        fc.assert(
+            fc.property(smallArb, ({ input: { meta, cause, errors, maxDepth }, maxProperties, maxArrayLength }) => {
+                const e = new StdError('m', { ...meta, cause, errors, maxDepth, maxProperties, maxArrayLength });
+                e.stack = undefined;
+                const kept = words(JSON.stringify(e));
+                for (const word of words(e.toString())) expect(kept.has(word), word).toBe(true);
+            }),
+            { numRuns: RUNS, endOnFailure: true }
+        );
+    });
+
     it('stderr() keeps no more than toJSON() of the same StdError', () => {
         fc.assert(
             fc.property(inputArb(true), ({ meta, maxDepth }) => {
