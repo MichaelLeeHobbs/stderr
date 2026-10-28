@@ -25,9 +25,17 @@ Use it when you want:
 Advanced patterns (timeouts, limit tuning, security, performance, testing) live in
 `docs/BestPractices.md`.
 
+### Project Status
+
+`stderr-lib` is **feature complete**. 3.0.0 is the final feature release: the API is stable and no new features are planned.
+Bug reports are still welcome and will be fixed in patch releases. Upgrading from 2.x? See the
+**[CHANGELOG](./CHANGELOG.md)** for the breaking changes.
+
 ---
 
 ## Installation
+
+Requires **Node.js 22 or newer**. No runtime dependencies.
 
 ```bash
 npm install stderr-lib
@@ -172,6 +180,8 @@ Key features:
 - **Accepts Promises directly**: Pass `fetch(url)` or `() => fetch(url)` – both work
 - **Automatic sync/async detection**: Returns `Result<T>` for sync, `Promise<Result<T>>` for async
 - **Optional error transformation**: Use `mapError` to convert `StdError` to your custom error type
+- **Never throws or rejects**: if `mapError` itself throws, the failure `error` is a `StdError` (not your `E`) with the
+  original error as `cause` and the `mapError` failure as `mapErrorFailure`
 - **Always `await` it, don't chain `.then()`**: a function that returns a Promise but throws before returning it
   (`() => fetch(new URL(input))` with a bad URL) gives a plain `Result`, although the type says `Promise<Result>`. No
   runtime check can tell such a function from a sync one. `await` handles both; `.then()` on a plain `Result` throws
@@ -249,6 +259,7 @@ and **[Performance Tips](./docs/BestPractices.md#performance-tips)**.
     - Performance tuning and environment‑specific limits
     - Testing strategies and property‑based tests
     - Custom error classes vs `StdError`, common patterns, and anti‑patterns
+- **[CHANGELOG.md](./CHANGELOG.md)** – release notes, including the 3.0.0 breaking changes
 - **[ADR.md](./docs/ADR.md)** – architectural decisions
 - **[TypeScript Coding Standard](./docs/TypeScript%20Coding%20Standard%20for%20Mission-Critical%20Systems.md)** – broader Result‑pattern guidance
 
@@ -256,7 +267,7 @@ and **[Performance Tips](./docs/BestPractices.md#performance-tips)**.
 
 ## Contributing
 
-Contributions are welcome. Please:
+The library is feature complete, so new features are unlikely to be accepted. Bug fixes are welcome. Please:
 
 1. Follow existing code style and patterns
 2. Add tests for new behavior
