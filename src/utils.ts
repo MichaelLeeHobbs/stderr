@@ -1,6 +1,6 @@
 // src/utils.ts
 import { StdError } from './StdError';
-import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isString, isSymbol, ownKeysOrEmpty, Primitive } from './types';
+import { isArray, isErrorShaped, isInstanceOf, isPrimitive, isSymbol, ownKeysOrEmpty, Primitive } from './types';
 import { LEGACY_LEAK_KEYS, MAX_REPEATED_REFERENCES } from './constants';
 
 /**
@@ -13,11 +13,7 @@ export const STANDARD_ERROR_KEYS = new Set<string>(['name', 'message', 'stack', 
  */
 export const CRITICAL_SECURITY_KEYS = new Set<string>(['prototype', '__proto__', 'constructor']);
 
-export const STANDARD_OBJECT_KEYS = new Set<string>([
-    'toJSON',
-    ...Object.getOwnPropertyNames(Object.prototype),
-    ...Object.getOwnPropertySymbols(Object.prototype).map(sym => sym.toString()),
-]);
+export const STANDARD_OBJECT_KEYS = new Set<string>(['toJSON', ...Object.getOwnPropertyNames(Object.prototype)]);
 
 export const DEFAULT_EXCLUDE_KEYS = new Set<string>([...STANDARD_ERROR_KEYS, ...CRITICAL_SECURITY_KEYS, ...STANDARD_OBJECT_KEYS]);
 
@@ -149,7 +145,8 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
         }
 
         // Maps and Sets are cut to maxArrayLength entries when normalized or serialized: mark it like an array
-        const cut = maxArrayLength !== undefined && !isArray(value) ? collectionTruncation(value, maxArrayLength) : undefined;
+        // (an array was cut and marked above)
+        const cut = collectionTruncation(value, maxArrayLength ?? Infinity);
         if (cut) markers.push([`_truncated_${String(key)}`, cut]);
 
         if (normalizeValue) {
@@ -189,7 +186,7 @@ export function collectionTruncation(value: unknown, maxArrayLength: number): st
 /**
  * Builds a comprehensive exclude keys set by walking the prototype chain.
  */
-export function buildExcludeKeys(startObj: object, additionalKeys: string[] = []): Set<string> {
+export function buildExcludeKeys(startObj: object, additionalKeys: string[]): Set<string> {
     const keysToSkip = new Set<string>([...CRITICAL_SECURITY_KEYS, ...additionalKeys]);
     let currentObj: object | null = startObj;
 
@@ -261,7 +258,6 @@ export class VisitTracker {
 
     /** Marks a value as an ancestor for the rest of the walk (used for the root). */
     hold(value: object): void {
-        this.visited.add(value);
         this.ancestors.add(value);
     }
 }
@@ -270,7 +266,6 @@ export class VisitTracker {
  * Converts an unknown input to a string representation safely.
  */
 export function unknownToString(input: unknown): string {
-    if (isString(input)) return input;
     if (isPrimitive(input)) return String(input);
     if (typeof input === 'function') {
         try {
@@ -314,8 +309,6 @@ export function unbox(value: object): Primitive | undefined {
 }
 
 export function primitiveToError(input: Primitive): StdError {
-    /* node:coverage ignore next */
-    if (!isPrimitive(input)) throw new TypeError('Input must be a primitive value');
     if (input === undefined) return new StdError('Unknown error (Undefined)');
     if (input === null) return new StdError('Unknown error (Null)');
     return new StdError(String(input));
