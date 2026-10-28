@@ -30,3 +30,20 @@ describe('V1: toString() hides a primitive cause or errors value at the depth li
         expect(e.toString()).toBe(['Error: m', '  [errors]: [', '    [0]: [Max depth of 1 reached]', "    [1]: 'b'", '  ]'].join('\n'));
     });
 });
+
+describe('V2: toJSON() serializes a single error in the errors slot one level higher than a list item or toString()', () => {
+    // serializeErrors() passes the parent's depth on: right for a list or a map (their items go one level down),
+    // but a single error is itself the item. stderr() wraps it in a list, so its items are one level down too.
+    it('a single error at the depth limit is cut, as in toString() and in a list', () => {
+        const single = noStack(new StdError('m', { maxDepth: 1, errors: new Error('one') }));
+        expect(single.toString()).toBe('Error: m\n  [errors]: [Max depth of 1 reached]');
+        expect(new StdError('m', { maxDepth: 1, errors: [new Error('one')] }).toJSON().errors).toEqual(['[Max depth of 1 reached]']);
+        expect(single.toJSON().errors).toBe('[Max depth of 1 reached]');
+    });
+
+    it('a Set of errors is a list of errors, as in toString() and stderr()', () => {
+        const e = noStack(new StdError('m', { errors: new Set([{ message: 'only' }]) }));
+        expect(e.toString()).toContain('[0]: Error: only');
+        expect(e.toJSON().errors).toEqual([{ name: 'Error', message: 'only' }]);
+    });
+});
