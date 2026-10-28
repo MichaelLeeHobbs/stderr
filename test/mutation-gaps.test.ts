@@ -322,6 +322,7 @@ describe('toString() layout', () => {
         e.errors = null;
         expect(e.toString()).toBe('Error: m');
         expect(Object.keys(e.toJSON())).toEqual(['name', 'message']);
+        expect(Object.keys(noStack(new StdError('m')).toJSON())).toEqual(['name', 'message']);
     });
 
     it('labels a Map of errors by a key object as its class or its message', () => {
@@ -381,6 +382,18 @@ describe('StdError constructor', () => {
 });
 
 describe('toJSON() of a StdError built directly (round 4)', () => {
+    it('serializes an object with any one error field as an error in the cause slot', () => {
+        const causeOf = (cause: unknown) => new StdError('m', { cause }).toJSON().cause;
+        expect(causeOf({ name: 'N' })).toEqual({ name: 'N', message: '' });
+        expect(causeOf({ message: 'M' })).toEqual({ name: 'Error', message: 'M' });
+        expect(causeOf({ stack: 'S' })).toEqual({ name: 'Error', message: '', stack: 'S' });
+        expect(causeOf({ cause: 'x' })).toEqual({ name: 'Error', message: '', cause: 'x' });
+        expect(causeOf({ errors: [] })).toEqual({ name: 'Error', message: '', errors: [] });
+        const bare = new Error();
+        delete bare.stack;
+        expect(causeOf(bare)).toEqual({ name: 'Error', message: '' });
+    });
+
     it('serializes a map of errors and an errors list leniently', () => {
         expect(new StdError('m', { errors: { a: { message: 'only' } } }).toJSON().errors).toEqual({ a: { name: 'Error', message: 'only' } });
         expect(new StdError('m', { errors: [{ message: 'only' }] }).toJSON().errors).toEqual([{ name: 'Error', message: 'only' }]);
@@ -490,8 +503,8 @@ describe('stderr() normalization (round 4)', () => {
         expect(stderr({ message: 'm' }).name).toBe('Error');
     });
 
-    it('makes a function in a metadata array its tag and drops a key called prototype', () => {
-        const e = stderr({ message: 'm', name: 'E', list: [() => 1], meta: { prototype: 1, a: 2 } });
+    it('makes a function in a metadata array its tag and drops keys called prototype and constructor', () => {
+        const e = stderr({ message: 'm', name: 'E', list: [() => 1], meta: { prototype: 1, constructor: 1, a: 2 } });
         expect(e.list).toEqual(['[object Function]']);
         expect(e.meta).toEqual({ a: 2 });
     });

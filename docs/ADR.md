@@ -89,6 +89,7 @@ The `maxDepth` option controls how deeply the library recurses when formatting e
 1. **Root error = depth 0**
 2. **Each nested structure increments depth** (cause, errors object, nested objects)
 3. **Arrays are transparent** - the array container itself doesn't increment depth, but its elements do
+4. **Except in metadata** - an array in a custom property counts as a level, like an object, in `stderr()`, `toString()` and `toJSON()` alike. Otherwise an array nested inside arrays would never reach the limit
 
 ### Rationale
 
