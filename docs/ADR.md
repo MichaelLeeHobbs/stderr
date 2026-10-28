@@ -426,6 +426,6 @@ Two residues were measured during this change and deliberately left alone. Both 
 
 ## Review Schedule
 
-**Next Review**: Before v3.0 (as needed)  
+**Next Review**: As needed (v3.0 is the final feature release; only bug fixes are planned)  
 **Trigger Events**: Major feature requests, security issues, standard updates  
 **Process**: Evaluate decisions against actual usage patterns and feedback
