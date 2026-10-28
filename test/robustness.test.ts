@@ -168,7 +168,8 @@ describe('StdError toString()/toJSON() robustness', () => {
     it('stops at the depth limit for errors and nested objects', () => {
         const e = new StdError('x', { maxDepth: 1, errors: [new Error('e')], obj: { deep: { deeper: 1 } }, map: new Map() });
         const str = e.toString();
-        expect(str).toContain('[errors]: [Max depth of 1 reached]');
+        // The list is shown and each item cut, as toJSON() does (V1)
+        expect(str).toContain('[0]: [Max depth of 1 reached]');
         expect(str).toContain('obj: [Max depth of 1 reached]');
         expect(JSON.stringify(e)).toContain('[Max depth of 1 reached]');
     });

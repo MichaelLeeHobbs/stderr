@@ -309,9 +309,7 @@ const formatError = (error: ErrorShape, depth: number, ctx: WalkContext): string
  * Formats a cause for display
  */
 const formatCause = (cause: unknown, depth: number, ctx: WalkContext): string => {
-    const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
-    if (depthMsg) return depthMsg;
-
+    // Both check the depth themselves: formatValue() after showing a primitive, which does not recurse
     if (isErrorShaped(cause)) return formatError(cause, depth, ctx);
 
     return formatValue(cause, depth, ctx);
@@ -325,8 +323,7 @@ const formatErrors = (errors: unknown, depth: number, ctx: WalkContext): string 
 const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext): string => {
     const indent = '  '.repeat(depth);
 
-    const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
-    if (depthMsg) return depthMsg;
+    // No depth check for the container: each item is checked (a primitive is still shown), as toJSON() does
 
     // Keep same depth - the container doesn't add a semantic nesting level (as serializeErrors() does)
     const formatItem = (label: string, value: unknown) =>
@@ -475,7 +472,15 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
  * a field called `name` or `message` ({ name: 'required', email: 'invalid' }) does not make the map an error.
  */
 const serializeErrors = (errors: unknown, depth: number, ctx: WalkContext): unknown =>
-    guarded(() => (isErrorsMap(errors) ? serializeObject(errors, depth, ctx, true) : serializeValue(errors, depth, ctx, true)));
+    guarded(() => {
+        // The items of a list or a map sit one level down, as in toString()
+        if (isErrorsMap(errors)) return serializeObject(errors, depth, ctx, true);
+        if (isArray(errors)) return serializeArray(errors, depth + 1, ctx, true);
+        if (isInstanceOf(errors, Set)) return serializeArray(Array.from(errors.values()), depth + 1, ctx, true);
+        if (isInstanceOf(errors, Map)) return serializeValue(errors, depth, ctx, true);
+        // A single error (AggregateError style) or other value is itself the item
+        return serializeValue(errors, depth + 1, ctx, true);
+    });
 
 /**
  * Adds the `_truncated` messages, then the `_truncated_<key>` cuts, after the properties are written. Together with
