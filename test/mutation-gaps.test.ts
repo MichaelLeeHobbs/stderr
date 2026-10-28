@@ -540,3 +540,17 @@ describe('stderr() normalization (round 4)', () => {
         expect(() => stderr('x', { maxDepth: 1001 })).toThrow('maxDepth must be between 1 and 1000, got: 1001');
     });
 });
+
+// Round 7: survivors of the run on the round 5 and 6 fixes
+describe('round 7 gaps', () => {
+    it('toString() shows an object inline when only its carried markers go past maxProperties', () => {
+        const e = noStack(new StdError('m', { maxProperties: 1 }));
+        e.meta = { a: 1, _truncated: 'x' };
+        expect(e.toString()).toBe("Error: m\n  meta: { a: 1, _truncated: 'x' }");
+    });
+
+    it('toJSON() counts the items of a Set of errors one level down', () => {
+        const e = new StdError('m', { maxDepth: 2, errors: new Set([{ a: { b: 1 } }]) });
+        expect(e.toJSON().errors).toEqual([{ a: '[Max depth of 2 reached]' }]);
+    });
+});
