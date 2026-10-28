@@ -42,7 +42,6 @@ const normalizeProperty = (v: unknown, opts: Limits, depth: number, tracker: Vis
 const normalizeUnknown = (input: unknown, opts: Limits, depth: number, tracker: VisitTracker): unknown => {
     const depthCheck = checkDepthLimit(depth, opts.maxDepth);
     if (depthCheck) return depthCheck;
-    if (isSymbol(input)) return input.toString();
     if (isPrimitive(input)) return input;
 
     const marker = tracker.enter(input as object);

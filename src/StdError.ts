@@ -328,9 +328,9 @@ const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext)
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
     if (depthMsg) return depthMsg;
 
-    // Keep same depth - the container doesn't add a semantic nesting level
+    // Keep same depth - the container doesn't add a semantic nesting level (as serializeErrors() does)
     const formatItem = (label: string, value: unknown) =>
-        `${indent}  ${label}: ${isErrorShaped(value) ? formatError(value, depth, ctx) : formatValue(value, depth + 1, ctx)}`;
+        `${indent}  ${label}: ${isErrorShaped(value) ? formatError(value, depth, ctx) : formatValue(value, depth, ctx)}`;
 
     const list = isInstanceOf(errors, Set) ? Array.from(errors.values()) : isArray(errors) ? errors : undefined;
     if (list) {
@@ -361,8 +361,7 @@ const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext)
         return '{\n' + items.join('\n') + `\n${indent}}`;
     }
 
-    // A single error, AggregateError style
-    if (isErrorShaped(errors)) return formatError(errors, depth, ctx);
+    // A single error (AggregateError style) or a plain value
     return formatValue(errors, depth, ctx);
 };
 
@@ -373,9 +372,6 @@ const formatValue = (value: unknown, depth: number, ctx: WalkContext): string =>
 
 const formatValueUnguarded = (value: unknown, depth: number, ctx: WalkContext): string => {
     // Primitives are always shown: the depth limit exists to stop recursion, and they do not recurse
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    if (isSymbol(value)) return value.toString();
     if (isPrimitive(value)) return typeof value === 'string' ? `'${value}'` : String(value);
 
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
@@ -400,7 +396,6 @@ const formatValueUnguarded = (value: unknown, depth: number, ctx: WalkContext): 
 
     try {
         if (isArray(value)) {
-            if (value.length === 0) return '[]';
             if (value.length > MAX_INLINE_ITEMS) return `[Array(${value.length})]`;
             return '[' + value.map(v => formatValue(v, depth + 1, ctx)).join(', ') + ']';
         }
@@ -461,8 +456,7 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
             const value = safeGet(error, key);
             // Distinct symbols can share a description: keep both instead of overwriting
             const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : String(key);
-            // Do not increase depth for an array as we are already increasing it for its items
-            result[serializedKey] = isArray(value) ? guarded(() => serializeArray(value, depth, ctx, false)) : serializeValue(value, depth + 1, ctx, false);
+            result[serializedKey] = serializeValue(value, depth + 1, ctx, false);
             const cut = newCut(error, serializedKey, value, ctx);
             if (cut) cuts.push(cut);
         }
@@ -550,7 +544,6 @@ const serializeValue = (value: unknown, depth: number, ctx: WalkContext, lenient
 
 const serializeValueUnguarded = (value: unknown, depth: number, ctx: WalkContext, lenient: boolean): unknown => {
     // Primitives (JSON.stringify cannot handle bigint, so it becomes a string)
-    if (value === null || value === undefined) return value;
     if (isSymbol(value) || typeof value === 'bigint') return value.toString();
     if (isPrimitive(value)) return value;
 
