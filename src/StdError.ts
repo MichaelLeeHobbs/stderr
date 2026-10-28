@@ -472,7 +472,15 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
  * a field called `name` or `message` ({ name: 'required', email: 'invalid' }) does not make the map an error.
  */
 const serializeErrors = (errors: unknown, depth: number, ctx: WalkContext): unknown =>
-    guarded(() => (isErrorsMap(errors) ? serializeObject(errors, depth, ctx, true) : serializeValue(errors, depth, ctx, true)));
+    guarded(() => {
+        // The items of a list or a map sit one level down, as in toString()
+        if (isErrorsMap(errors)) return serializeObject(errors, depth, ctx, true);
+        if (isArray(errors)) return serializeArray(errors, depth + 1, ctx, true);
+        if (isInstanceOf(errors, Set)) return serializeArray(Array.from(errors.values()), depth + 1, ctx, true);
+        if (isInstanceOf(errors, Map)) return serializeValue(errors, depth, ctx, true);
+        // A single error (AggregateError style) or other value is itself the item
+        return serializeValue(errors, depth + 1, ctx, true);
+    });
 
 /**
  * Adds the `_truncated` messages, then the `_truncated_<key>` cuts, after the properties are written. Together with

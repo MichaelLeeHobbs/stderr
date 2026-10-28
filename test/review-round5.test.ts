@@ -47,3 +47,11 @@ describe('V2: toJSON() serializes a single error in the errors slot one level hi
         expect(e.toJSON().errors).toEqual([{ name: 'Error', message: 'only' }]);
     });
 });
+
+describe('V2 follow-up: a Map of errors keeps its depth', () => {
+    it('cuts Map values at the same depth as toString()', () => {
+        const e = noStack(new StdError('m', { maxDepth: 2, errors: new Map([['f', { a: { b: 1 } }]]) }));
+        expect(e.toString()).toContain('f: { a: [Max depth of 2 reached] }');
+        expect(e.toJSON().errors).toEqual([['f', { a: '[Max depth of 2 reached]' }]]);
+    });
+});
