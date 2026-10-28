@@ -6,10 +6,12 @@ import {
     boundKeys,
     buildExcludeKeys,
     checkDepthLimit,
+    collectionTruncation,
     copyPropertiesTo,
     formatDate,
     freeKey,
     getCustomKeys,
+    isMarkerKey,
     type Limits,
     safeGet,
     setLimit,
@@ -326,31 +328,41 @@ const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext)
     const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
     if (depthMsg) return depthMsg;
 
-    if (isArray(errors)) {
-        if (errors.length === 0) return '[]';
+    // Keep same depth - the container doesn't add a semantic nesting level
+    const formatItem = (label: string, value: unknown) =>
+        `${indent}  ${label}: ${isErrorShaped(value) ? formatError(value, depth, ctx) : formatValue(value, depth + 1, ctx)}`;
 
-        const items = errors.slice(0, ctx.maxArrayLength).map((err, idx) => {
-            // Keep same depth - array container doesn't add semantic nesting level
-            if (isErrorShaped(err)) return `${indent}  [${idx}]: ${formatError(err, depth, ctx)}`;
-            return `${indent}  [${idx}]: ${formatValue(err, depth, ctx)}`;
-        });
-
+    const list = isInstanceOf(errors, Set) ? Array.from(errors.values()) : isArray(errors) ? errors : undefined;
+    if (list) {
+        if (list.length === 0) return '[]';
+        const items = list.slice(0, ctx.maxArrayLength).map((err, idx) => formatItem(`[${idx}]`, err));
+        const cut = collectionTruncation(errors, ctx.maxArrayLength);
+        if (cut) items.push(`${indent}  _truncated: '${cut}'`);
         return '[\n' + items.join('\n') + `\n${indent}]`;
     }
 
-    if (isObject(errors)) {
-        const keys = Object.keys(errors);
-        if (keys.length === 0) return '{}';
-
-        const items = keys.slice(0, ctx.maxProperties).map(key => {
-            const value = safeGet(errors, key);
-            if (isErrorShaped(value)) return `${indent}  ${key}: ${formatError(value, depth, ctx)}`;
-            return `${indent}  ${key}: ${formatValue(value, depth + 1, ctx)}`;
-        });
-
+    // A Map of errors keyed by field
+    if (isInstanceOf(errors, Map)) {
+        const entries = Array.from(errors.entries());
+        if (entries.length === 0) return '{}';
+        const items = entries.slice(0, ctx.maxProperties).map(([key, value]) => formatItem(unknownToString(key), value));
+        if (entries.length > ctx.maxProperties) {
+            items.push(`${indent}  _truncated: 'Property count (${entries.length}) exceeds limit (${ctx.maxProperties}), showing first ${ctx.maxProperties}'`);
+        }
         return '{\n' + items.join('\n') + `\n${indent}}`;
     }
 
+    // A plain object of errors keyed by field, as serializeErrors() reads it
+    if (isErrorsMap(errors)) {
+        const { keys, truncated } = boundKeys(Object.keys(errors), ctx.maxProperties);
+        if (keys.length === 0) return '{}';
+        const items = keys.map(key => formatItem(key, safeGet(errors, key)));
+        if (truncated) items.push(`${indent}  _truncated: '${truncated}'`);
+        return '{\n' + items.join('\n') + `\n${indent}}`;
+    }
+
+    // A single error, AggregateError style
+    if (isErrorShaped(errors)) return formatError(errors, depth, ctx);
     return formatValue(errors, depth, ctx);
 };
 
@@ -373,6 +385,9 @@ const formatValueUnguarded = (value: unknown, depth: number, ctx: WalkContext): 
     if (isInstanceOf(value, RegExp)) return value.toString();
     if (isInstanceOf(value, Map)) return `Map(${value.size})`;
     if (isInstanceOf(value, Set)) return `Set(${value.size})`;
+
+    // An error in metadata is shown as an error: Object.keys() would miss its message, which is not enumerable
+    if (isErrorLike(value)) return formatError(value, depth, ctx);
 
     if (!isObject(value)) {
         /* node:coverage ignore next 2 */
@@ -441,19 +456,19 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
 
         // Serialize custom properties
         const { keys, truncated } = boundKeys(getCustomKeys(error), ctx.maxProperties);
+        const cuts: [string, string][] = [];
         for (const key of keys) {
             const value = safeGet(error, key);
             // Distinct symbols can share a description: keep both instead of overwriting
             const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : String(key);
             // Do not increase depth for an array as we are already increasing it for its items
             result[serializedKey] = isArray(value) ? guarded(() => serializeArray(value, depth, ctx, false)) : serializeValue(value, depth + 1, ctx, false);
+            const cut = newCut(error, serializedKey, value, ctx);
+            if (cut) cuts.push(cut);
         }
-        if (truncated) addMarker(result, '_truncated', truncated);
-        // A long errors array is cut by serializeArray: mark it, as stderr() does
-        const errorCount = isArray(errors) ? safeGet(errors, 'length') : undefined;
-        if (typeof errorCount === 'number' && errorCount > ctx.maxArrayLength) {
-            addMarker(result, '_truncated', `Array length (${errorCount}) exceeds limit (${ctx.maxArrayLength}), showing first ${ctx.maxArrayLength}`);
-        }
+        // A long errors list is cut when serialized: mark it, as stderr() does
+        const errorsCut = isErrorsMap(errors) ? undefined : collectionTruncation(errors, ctx.maxArrayLength);
+        addMarkers(result, keys, ctx, [truncated, errorsCut], cuts);
 
         return result;
     } finally {
@@ -466,11 +481,34 @@ const serializeError = (error: ErrorShape, depth: number, ctx: WalkContext): Err
  * a field called `name` or `message` ({ name: 'required', email: 'invalid' }) does not make the map an error.
  */
 const serializeErrors = (errors: unknown, depth: number, ctx: WalkContext): unknown =>
-    guarded(() => {
-        const isMap = isObject(errors) && !isArray(errors) && !isErrorLike(errors) && !isBuiltIn(errors);
-        if (!isMap) return serializeValue(errors, depth, ctx, true);
-        return serializeObject(errors, depth, ctx, true);
-    });
+    guarded(() => (isErrorsMap(errors) ? serializeObject(errors, depth, ctx, true) : serializeValue(errors, depth, ctx, true)));
+
+/**
+ * Adds the `_truncated` messages, then the `_truncated_<key>` cuts, after the properties are written. Together with
+ * the markers carried over in `keptKeys` they stay within maxProperties + 1, as boundKeys() allows: one walk adds
+ * at most that many, whatever an input carries. A cut left out is still shown as a shorter array.
+ */
+const addMarkers = (result: ErrorRecord, keptKeys: (string | symbol)[], ctx: WalkContext, messages: (string | undefined)[], cuts: [string, string][]): void => {
+    const all: [string, string][] = [...messages.filter(isString).map((m): [string, string] => ['_truncated', m]), ...cuts];
+    const room = ctx.maxProperties + 1 - keptKeys.filter(isMarkerKey).length;
+    for (const [key, message] of all.slice(0, Math.max(0, room))) addMarker(result, key, message);
+};
+
+/** A plain object in the `errors` slot: a map of errors keyed by field. */
+const isErrorsMap = (errors: unknown): errors is object => isObject(errors) && !isArray(errors) && !isErrorLike(errors) && !isBuiltIn(errors);
+
+/**
+ * The `_truncated_<key>` marker for a value that serializing cuts (an array, Map or Set over maxArrayLength).
+ * None when the source already carries that marker: stderr() and the constructor mark what they cut themselves.
+ */
+const newCut = (source: object, key: string, value: unknown, ctx: WalkContext): [string, string] | undefined => {
+    // A carried marker's value is a library message, not data to mark
+    if (isMarkerKey(key)) return undefined;
+    const markerKey = `_truncated_${key}`;
+    if (Object.prototype.hasOwnProperty.call(source, markerKey)) return undefined;
+    const cut = collectionTruncation(value, ctx.maxArrayLength);
+    return cut ? [markerKey, cut] : undefined;
+};
 
 /** Date, RegExp, Map and Set: objects whose state is not in own properties. */
 const isBuiltIn = (value: unknown): boolean => isInstanceOf(value, Date) || isInstanceOf(value, RegExp) || isInstanceOf(value, Map) || isInstanceOf(value, Set);
@@ -567,11 +605,15 @@ const serializeObject = (value: object, depth: number, ctx: WalkContext, lenient
         const result: ErrorRecord = {};
         const { keys, truncated } = boundKeys(getCustomKeys(value, { excludeKeys: new Set() }), ctx.maxProperties);
 
+        const cuts: [string, string][] = [];
         for (const key of keys) {
             const serializedKey = isSymbol(key) ? freeKey(result, key.toString()) : key;
-            result[serializedKey] = serializeValue(safeGet(value, key), depth + 1, ctx, lenientValues);
+            const item = safeGet(value, key);
+            result[serializedKey] = serializeValue(item, depth + 1, ctx, lenientValues);
+            const cut = newCut(value, serializedKey, item, ctx);
+            if (cut) cuts.push(cut);
         }
-        if (truncated) addMarker(result, '_truncated', truncated);
+        addMarkers(result, keys, ctx, [truncated], cuts);
 
         return result;
     } finally {

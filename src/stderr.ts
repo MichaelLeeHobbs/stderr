@@ -20,6 +20,7 @@ import {
     primitiveToError,
     safeGet,
     setLimit,
+    unbox,
     unknownToString,
     validateLimits,
     VisitTracker,
@@ -55,9 +56,14 @@ const normalizeUnknown = (input: unknown, opts: Limits, depth: number, tracker: 
 
 const normalizeObject = (input: object, opts: Limits, depth: number, tracker: VisitTracker): unknown => {
     if (isArray(input)) {
-        // For arrays, just return the bounded slice - truncation metadata added by caller if needed
-        return input.slice(0, opts.maxArrayLength).map(e => normalizeUnknown(e, opts, depth + 1, tracker));
+        // For arrays, just return the bounded slice - truncation metadata added by caller if needed.
+        // Items go through normalizeProperty, like object values: a primitive is kept at the depth limit.
+        return input.slice(0, opts.maxArrayLength).map(e => normalizeProperty(e, opts, depth, tracker));
     }
+
+    // new String('x') and the like: the value, not one property per character
+    const boxed = unbox(input);
+    if (boxed !== undefined) return isSymbol(boxed) ? boxed.toString() : boxed;
 
     // Built-ins whose state is not in own properties would otherwise collapse to {}
     if (isInstanceOf(input, Date)) return new Date(input.getTime());
@@ -155,7 +161,9 @@ const normalizeErrors = (errors: unknown, opts: Limits, depth: number, tracker: 
         for (const key of keys) {
             const value = safeGet(errors, key);
             // A carried-over truncation marker stays a string
-            normObj[key.toString()] = isMarkerKey(key) && isString(value) ? value : toError(value);
+            // Distinct symbols can share a description (Symbol('id') twice): keep both instead of overwriting
+            const field = isSymbol(key) ? freeKey(normObj, key.toString()) : key;
+            normObj[field] = isMarkerKey(key) && isString(value) ? value : toError(value);
         }
         if (truncated) addMarker(normObj, '_truncated', truncated);
         return { errors: normObj };
@@ -253,6 +261,11 @@ const stderr = ((input: unknown, options: NormalizeOptions = {}): StdError => {
 
 const normalizeRoot = (input: unknown, opts: Limits, tracker: VisitTracker): StdError => {
     if (isPrimitive(input)) return errorFromPrimitive(input);
+    const boxed = unbox(input as object);
+    if (boxed !== undefined) return errorFromPrimitive(boxed);
+    // Built-ins whose value is not in own properties: their text, as for a Date or RegExp cause
+    if (isInstanceOf(input, Date)) return errorFromPrimitive(formatDate(input));
+    if (isInstanceOf(input, RegExp)) return errorFromPrimitive(input.toString());
 
     tracker.hold(input as object);
     if (isFunction(input)) return errorFromPrimitive(unknownToString(input));

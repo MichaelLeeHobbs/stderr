@@ -149,11 +149,8 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
         }
 
         // Maps and Sets are cut to maxArrayLength entries when normalized or serialized: mark it like an array
-        const size = maxArrayLength !== undefined ? collectionSize(value) : undefined;
-        if (size !== undefined && size > maxArrayLength!) {
-            const kind = isInstanceOf(value, Map) ? 'Map' : 'Set';
-            markers.push([`_truncated_${String(key)}`, `${kind} size (${size}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}`]);
-        }
+        const cut = maxArrayLength !== undefined && !isArray(value) ? collectionTruncation(value, maxArrayLength) : undefined;
+        if (cut) markers.push([`_truncated_${String(key)}`, cut]);
 
         if (normalizeValue) {
             value = normalizeValue(value);
@@ -171,11 +168,19 @@ export function copyPropertiesTo(source: object, target: Record<string | symbol,
     for (const [key, message] of markers) addMarker(target, key, message);
 }
 
-/** The size of a Map or Set, or undefined for anything else (including one whose size cannot be read). */
-function collectionSize(value: unknown): number | undefined {
-    if (!isInstanceOf(value, Map) && !isInstanceOf(value, Set)) return undefined;
+/**
+ * The `_truncated_<key>` message for an array, Map or Set with more than maxArrayLength items, which normalizing
+ * or serializing cuts. Undefined for anything else, including one whose length or size cannot be read.
+ */
+export function collectionTruncation(value: unknown, maxArrayLength: number): string | undefined {
     try {
-        return value.size;
+        let count: number;
+        let what: string;
+        if (isArray(value)) [count, what] = [value.length, 'Array length'];
+        else if (isInstanceOf(value, Map)) [count, what] = [value.size, 'Map size'];
+        else if (isInstanceOf(value, Set)) [count, what] = [value.size, 'Set size'];
+        else return undefined;
+        return count > maxArrayLength ? `${what} (${count}) exceeds limit (${maxArrayLength}), showing first ${maxArrayLength}` : undefined;
     } catch {
         return undefined;
     }
@@ -289,6 +294,23 @@ export function unknownToString(input: unknown): string {
     } catch {
         return '[Possible Malicious Object]';
     }
+}
+
+const BOXED_TYPES = [String, Number, Boolean, BigInt, Symbol] as const;
+
+/**
+ * The primitive inside a wrapper object (`new String('x')`, `Object(1n)`), or undefined for any other object.
+ * Uses each type's own valueOf, which checks the internal slot: a lookalike or a Proxy is not unboxed.
+ */
+export function unbox(value: object): Primitive | undefined {
+    for (const type of BOXED_TYPES) {
+        try {
+            return (type.prototype.valueOf as (this: object) => Primitive).call(value);
+        } catch {
+            // Not this type
+        }
+    }
+    return undefined;
 }
 
 export function primitiveToError(input: Primitive): StdError {

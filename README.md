@@ -140,6 +140,7 @@ Important methods:
 - `toJSON(): object` – JSON‑safe representation suitable for logging systems and transports
 
 Both respect the instance limits (`maxDepth`, `maxProperties`, `maxArrayLength`) and mark what they leave out with `_truncated`.
+The one exception is an array directly inside another array: it has no key to hold a marker, so it is cut without one.
 `new StdError(message, { maxDepth, maxProperties, maxArrayLength })` and `StdError.defaultMaxDepth` / `defaultMaxProperties` /
 `defaultMaxArrayLength` accept the same ranges as `stderr()` and throw `TypeError`/`RangeError` otherwise.
 
@@ -171,6 +172,9 @@ Key features:
 - **Accepts Promises directly**: Pass `fetch(url)` or `() => fetch(url)` – both work
 - **Automatic sync/async detection**: Returns `Result<T>` for sync, `Promise<Result<T>>` for async
 - **Optional error transformation**: Use `mapError` to convert `StdError` to your custom error type
+- **Always `await` it, don't chain `.then()`**: a function that returns a Promise but throws before returning it
+  (`() => fetch(new URL(input))` with a bad URL) gives a plain `Result`, although the type says `Promise<Result>`. No
+  runtime check can tell such a function from a sync one. `await` handles both; `.then()` on a plain `Result` throws
 - **`any` stays sync**: `tryCatch(() => JSON.parse(text))` is typed `Result<any>`. An `async` function or a `Promise` is still typed
   `Promise<Result<...>>`; only an explicit `tryCatch<any>(async () => ...)` loses that, so let TypeScript infer the type there
 
