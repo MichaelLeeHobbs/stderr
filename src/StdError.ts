@@ -309,9 +309,7 @@ const formatError = (error: ErrorShape, depth: number, ctx: WalkContext): string
  * Formats a cause for display
  */
 const formatCause = (cause: unknown, depth: number, ctx: WalkContext): string => {
-    const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
-    if (depthMsg) return depthMsg;
-
+    // Both check the depth themselves: formatValue() after showing a primitive, which does not recurse
     if (isErrorShaped(cause)) return formatError(cause, depth, ctx);
 
     return formatValue(cause, depth, ctx);
@@ -325,8 +323,7 @@ const formatErrors = (errors: unknown, depth: number, ctx: WalkContext): string 
 const formatErrorsUnguarded = (errors: unknown, depth: number, ctx: WalkContext): string => {
     const indent = '  '.repeat(depth);
 
-    const depthMsg = checkDepthLimit(depth, ctx.maxDepth);
-    if (depthMsg) return depthMsg;
+    // No depth check for the container: each item is checked (a primitive is still shown), as toJSON() does
 
     // Keep same depth - the container doesn't add a semantic nesting level (as serializeErrors() does)
     const formatItem = (label: string, value: unknown) =>
