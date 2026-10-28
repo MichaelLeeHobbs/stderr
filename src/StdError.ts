@@ -393,13 +393,14 @@ const formatValueUnguarded = (value: unknown, depth: number, ctx: WalkContext): 
 
     try {
         if (isArray(value)) {
-            if (value.length > MAX_INLINE_ITEMS) return `[Array(${value.length})]`;
+            // Summarized when long, or when listing it would show items past the limit (as toJSON() cuts them)
+            if (value.length > Math.min(MAX_INLINE_ITEMS, ctx.maxArrayLength)) return `[Array(${value.length})]`;
             return '[' + value.map(v => formatValue(v, depth + 1, ctx)).join(', ') + ']';
         }
 
         const keys = Object.keys(value);
         if (keys.length === 0) return '{}';
-        if (keys.length > MAX_INLINE_ITEMS) return `{Object with ${keys.length} keys}`;
+        if (keys.length > MAX_INLINE_ITEMS || keys.filter(k => !isMarkerKey(k)).length > ctx.maxProperties) return `{Object with ${keys.length} keys}`;
 
         const pairs = keys.map(k => `${k}: ${formatValue(safeGet(value, k), depth + 1, ctx)}`);
         return '{ ' + pairs.join(', ') + ' }';
